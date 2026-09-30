@@ -42,7 +42,7 @@ instruções, e ele não altera nada nos projetos (só lê).
 2. **Senha do Jarvis**: gere uma senha longa, por exemplo com
    `openssl rand -hex 24`, ou use um gerador de senhas com 40+ caracteres.
 3. No Easypanel: **Create → App** (no projeto que preferir) → nome `jarvis`.
-4. **Source → GitHub**: repositório `ampliize/jarvis`, branch `main`.
+4. **Source → GitHub**: repositório `ampliize/jarviscentral`, branch `main`.
    **Build → Dockerfile** (caminho `Dockerfile`).
 5. **Environment** — cole e preencha:
    ```
