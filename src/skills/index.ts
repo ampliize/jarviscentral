@@ -1,6 +1,7 @@
 import { toolResult, type Connector } from "../connectors/types.js";
 import { NewsError, type NewsService } from "./news.js";
 import { parseWhen, ReminderError, type ReminderStore } from "./reminders.js";
+import type { AlertBook } from "./alerts.js";
 import type { SystemMonitor } from "./monitor.js";
 import { WeatherError, type WeatherService } from "./weather.js";
 
@@ -13,6 +14,8 @@ export interface Skills {
   timeZone: string;
   /** Monitor dos sistemas (lista em _jarvis/sistemas.md). */
   monitor?: SystemMonitor;
+  /** Riscos registrados (_jarvis/alertas.md). */
+  alerts?: AlertBook;
 }
 
 const obj = (properties: Record<string, unknown>) => ({

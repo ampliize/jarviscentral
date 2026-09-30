@@ -2,6 +2,7 @@ import type { Config } from "./config.js";
 import { callResource, ResourceApiError } from "./connectors/resourceApi.js";
 import type { Brain } from "./memory/brain.js";
 import type { Skills } from "./skills/index.js";
+import type { Alert } from "./skills/alerts.js";
 import type { SystemCheck } from "./skills/monitor.js";
 import type { Reminder } from "./skills/reminders.js";
 import type { Weather } from "./skills/weather.js";
@@ -45,6 +46,7 @@ export interface Briefing {
     lembretes_hoje: number;
     clima: { cidade: string; temperatura: number } | null;
     sistemas: { total: number; ok: number } | null;
+    riscos: number;
   };
 }
 
@@ -301,6 +303,31 @@ function systemsCard(list: SystemCheck[]): BriefingCard | null {
   };
 }
 
+const LEVEL: Record<Alert["nivel"], string> = { critico: "crítico", alto: "alto", medio: "médio", baixo: "baixo" };
+const ICON: Record<Alert["nivel"], string> = { critico: "🔴", alto: "🟠", medio: "🟡", baixo: "🟢" };
+
+/** Riscos registrados em _jarvis/alertas.md que ainda não foram resolvidos. */
+function risksCard(list: Alert[], tz: string): BriefingCard | null {
+  if (!list.length) return null;
+  const since = (a: Alert) => (a.desde ? ddmm(a.desde, tz) : null);
+  const top = list[0]!;
+  const crit = list.filter((a) => a.nivel === "critico").length;
+  return {
+    id: "riscos",
+    rotulo: "OPERAÇÃO · RISCOS",
+    titulo: crit ? "Riscos críticos em aberto" : "Riscos em aberto",
+    destaque: { valor: String(list.length), legenda: crit ? `${crit} crítico${crit > 1 ? "s" : ""}` : "em aberto" },
+    itens: list.slice(0, 8).map((a) => ({
+      titulo: `${ICON[a.nivel]} ${a.sistema}: ${a.descricao}`,
+      detalhe: [since(a) ? `desde ${since(a)}` : null, a.acao ? `ação: ${a.acao}` : null].filter(Boolean).join(" · ") || undefined,
+      alerta: a.nivel === "critico" || a.nivel === "alto",
+    })),
+    fala: `${list.length === 1 ? "Tem um risco em aberto" : `Tem ${list.length} riscos em aberto`}. O mais grave: ${top.sistema}, ${top.descricao}, nível ${LEVEL[top.nivel]}${
+      since(top) ? `, desde ${since(top)}` : ""
+    }.`,
+  };
+}
+
 export interface BuildInput {
   crm: CrmBriefing | null;
   crmError?: string | null;
@@ -312,6 +339,8 @@ export interface BuildInput {
   lembretes?: Reminder[];
   /** Último teste dos sistemas monitorados (null = monitor indisponível). */
   sistemas?: SystemCheck[] | null;
+  /** Riscos em aberto (_jarvis/alertas.md). */
+  alertas?: Alert[];
   ownerName: string;
   timeZone: string;
   now?: Date;
@@ -331,6 +360,8 @@ export function buildBriefing(input: BuildInput): Briefing {
   const systems = systemsCard(input.sistemas ?? []);
   if (systems) cards.push(systems);
   const badSystems = (input.sistemas ?? []).filter((s) => s.status !== "ok").length;
+  const risks = risksCard(input.alertas ?? [], tz);
+  if (risks) cards.push(risks);
 
   if (input.crm) {
     const { financeiro, tarefas, comercial, sistema } = input.crm;
@@ -359,7 +390,7 @@ export function buildBriefing(input: BuildInput): Briefing {
   }
 
   // Lembretes atrasados e sistemas com problema contam mesmo sem o CRM.
-  atencao += lateReminders + badSystems;
+  atencao += lateReminders + badSystems + (input.alertas?.length ?? 0);
 
   const brain = brainCard(input.pendencias, input.inbox);
   if (brain) cards.push(brain);
@@ -380,6 +411,7 @@ export function buildBriefing(input: BuildInput): Briefing {
     lembretes_hoje: input.lembretes?.length ?? 0,
     clima: input.clima ? { cidade: input.clima.cidade.replace(/\s*\(.*\)$/, ""), temperatura: input.clima.agora.temperatura } : null,
     sistemas: input.sistemas?.length ? { total: input.sistemas.length, ok: input.sistemas.length - badSystems } : null,
+    riscos: input.alertas?.length ?? 0,
   };
   return { saudacao: hello, abertura, cards, fechamento, atencao, numeros };
 }
@@ -391,14 +423,15 @@ const endOfToday = (now: Date, timeZone: string) => {
   return until;
 };
 
-export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typeof fetch, now = new Date(), skills?: Skills): Promise<Briefing> {
+/** Junta tudo o que o briefing e o monitor da operação usam (em paralelo). */
+export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: typeof fetch, now = new Date(), skills?: Skills): Promise<BuildInput> {
   let crmError: string | null = null;
   // CRM, clima e lembretes em paralelo; clima fora do ar não derruba o briefing.
   // Sistemas: usa o último teste (até 10 min); se precisar testar, espera no máximo 6 s.
   const systemsStatus = skills?.monitor
     ? Promise.race([skills.monitor.status(10 * 60 * 1000), new Promise<null>((r) => setTimeout(() => r(null), 6_000).unref())]).catch(() => null)
     : Promise.resolve(null);
-  const [crm, clima, lembretes, pendencias, inbox, sistemas] = await Promise.all([
+  const [crm, clima, lembretes, pendencias, inbox, sistemas, alertas] = await Promise.all([
     config.ampliize
       ? (callResource({ ...config.ampliize, fetchImpl, timeoutMs: 15_000 }, "briefing") as Promise<CrmBriefing>).catch((err) => {
           crmError = err instanceof ResourceApiError ? err.message : "falha na consulta";
@@ -410,8 +443,9 @@ export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typ
     brain.pendencias(),
     brain.inboxCount(),
     systemsStatus,
+    skills?.alerts ? skills.alerts.open().catch(() => []) : Promise.resolve([]),
   ]);
-  return buildBriefing({
+  return {
     crm,
     crmError,
     crmConfigured: !!config.ampliize,
@@ -420,8 +454,126 @@ export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typ
     clima,
     lembretes,
     sistemas,
+    alertas,
     ownerName: config.ownerName,
     timeZone: config.timeZone,
     now,
+  };
+}
+
+export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typeof fetch, now = new Date(), skills?: Skills): Promise<Briefing> {
+  return buildBriefing(await gatherOperation(config, brain, fetchImpl, now, skills));
+}
+
+// ---------------------------------------------------------------- monitor da operação
+
+export type AreaState = "ok" | "atencao" | "critico" | "sem_dados";
+
+export interface OperationArea {
+  id: string;
+  nome: string;
+  estado: AreaState;
+  resumo: string;
+  itens: string[];
+}
+
+export interface Operation {
+  geral: AreaState;
+  areas: OperationArea[];
+  gerado_em: string;
+}
+
+const WORST: AreaState[] = ["critico", "atencao", "ok", "sem_dados"];
+
+/**
+ * Semáforo da operação inteira, área por área, com os mesmos dados do briefing.
+ * Só lê: os riscos saem de _jarvis/alertas.md e os números do CRM.
+ */
+export function buildOperation(input: BuildInput): Operation {
+  const now = input.now ?? new Date();
+  const tz = input.timeZone;
+  const areas: OperationArea[] = [];
+
+  const systems = input.sistemas;
+  if (!systems) areas.push({ id: "sistemas", nome: "Sistemas", estado: "sem_dados", resumo: "monitor ainda testando", itens: [] });
+  else if (!systems.length) areas.push({ id: "sistemas", nome: "Sistemas", estado: "sem_dados", resumo: "nenhum sistema em _jarvis/sistemas.md", itens: [] });
+  else {
+    const down = systems.filter((x) => x.status === "fora");
+    const warn = systems.filter((x) => x.status === "atencao");
+    areas.push({
+      id: "sistemas",
+      nome: "Sistemas",
+      estado: down.length ? "critico" : warn.length ? "atencao" : "ok",
+      resumo: `${systems.length - down.length - warn.length}/${systems.length} no ar e saudáveis`,
+      itens: [...down, ...warn].map((x) => `${x.nome}${x.cliente ? ` (${x.cliente})` : ""}: ${x.status === "fora" ? "fora do ar" : "atenção"}${x.detalhe ? `, ${x.detalhe}` : ""}`),
+    });
+  }
+
+  const risks = input.alertas ?? [];
+  const crit = risks.filter((a) => a.nivel === "critico").length;
+  areas.push({
+    id: "riscos",
+    nome: "Riscos registrados",
+    estado: crit ? "critico" : risks.length ? "atencao" : "ok",
+    resumo: risks.length ? `${risks.length} em aberto${crit ? `, ${crit} crítico${crit > 1 ? "s" : ""}` : ""}` : "nenhum risco em aberto",
+    itens: risks.map((a) => `${ICON[a.nivel]} ${a.sistema}: ${a.descricao}${a.desde ? ` (desde ${ddmm(a.desde, tz)})` : ""}`),
   });
+
+  const crm = input.crm;
+  if (!crm) {
+    const why = input.crmConfigured ? `CRM não respondeu${input.crmError ? ` (${input.crmError})` : ""}` : "CRM não conectado";
+    for (const [id, nome] of [["financeiro", "Financeiro"], ["entregas", "Entregas"], ["comercial", "Comercial"], ["crm", "Erros do CRM"]] as const) {
+      areas.push({ id, nome, estado: "sem_dados", resumo: why, itens: [] });
+    }
+  } else {
+    const f = crm.financeiro;
+    const overdue = total(f.vencidas, f.vencidas_total);
+    // A mais antiga das vencidas (a lista do CRM não garante ordem).
+    const dues = f.vencidas.map((i) => Date.parse(`${i.vencimento.slice(0, 10)}T12:00:00Z`)).filter((t) => !Number.isNaN(t));
+    const veryLate = dues.length ? now.getTime() - Math.min(...dues) > 30 * 86_400_000 : false;
+    areas.push({
+      id: "financeiro",
+      nome: "Financeiro",
+      estado: overdue ? (veryLate ? "critico" : "atencao") : "ok",
+      resumo: `${brl(f.recebido_no_mes)} recebido no mês · ${plural(overdue, "cobrança vencida", "cobranças vencidas")}`,
+      itens: f.vencidas.map((i) => `${i.cliente ?? "sem cliente"}: ${brl(i.valor)} vencida em ${ddmm(i.vencimento, tz)}`),
+    });
+    const t = crm.tarefas;
+    const late = total(t.atrasadas, t.atrasadas_total);
+    const blocked = total(t.bloqueadas, t.bloqueadas_total);
+    areas.push({
+      id: "entregas",
+      nome: "Entregas",
+      estado: late || blocked ? "atencao" : "ok",
+      resumo: `${plural(late, "tarefa atrasada", "tarefas atrasadas")} · ${plural(blocked, "bloqueada", "bloqueadas")}`,
+      itens: [...t.atrasadas.map((x) => `${x.tarefa}${x.projeto ? ` (${x.projeto.trim()})` : ""}: atrasada`), ...t.bloqueadas.map((x) => `${x.tarefa}: bloqueada`)],
+    });
+    const c = crm.comercial;
+    areas.push({
+      id: "comercial",
+      nome: "Comercial",
+      estado: c.follow_ups_atrasados ? "atencao" : "ok",
+      resumo: `${plural(c.em_aberto, "lead em aberto", "leads em aberto")} · ${plural(c.follow_ups_atrasados, "follow-up atrasado", "follow-ups atrasados")} · ${plural(c.leads_novos_24h.quantidade, "novo em 24 h", "novos em 24 h")}`,
+      itens: [],
+    });
+    areas.push({
+      id: "crm",
+      nome: "Erros do CRM",
+      estado: crm.sistema.erros_abertos ? "atencao" : "ok",
+      resumo: crm.sistema.erros_abertos ? `${plural(crm.sistema.erros_abertos, "erro aberto", "erros abertos")} no Monitor` : "sem erros abertos",
+      itens: [],
+    });
+  }
+
+  const late = (input.lembretes ?? []).filter((r) => Date.parse(r.quando) < now.getTime());
+  areas.push({
+    id: "lembretes",
+    nome: "Lembretes",
+    estado: late.length ? "atencao" : "ok",
+    resumo: late.length ? plural(late.length, "lembrete atrasado", "lembretes atrasados") : "nada atrasado",
+    itens: late.map((r) => r.texto),
+  });
+
+  const geral = WORST.find((w) => w !== "sem_dados" && areas.some((a) => a.estado === w)) ?? "sem_dados";
+  return { geral, areas, gerado_em: now.toISOString() };
 }
