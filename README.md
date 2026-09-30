@@ -15,7 +15,7 @@ cada um, na hora, pelo endpoint de integração deles.
                 └────────────────────────────────────────────────────────────────┘
 ```
 
-## O que ele faz hoje (v0.4)
+## O que ele faz hoje (v0.5)
 
 - **HUD com o camaleão da Ampliize** em `/`: um holograma do camaleão do logo
   que reage à voz (o maxilar abre quando ele fala, pisca, muda de cor quando
@@ -32,6 +32,13 @@ cada um, na hora, pelo endpoint de integração deles.
 - **Habilidades**: lembretes com aviso em voz na hora, clima (Open-Meteo) e
   notícias (Google Notícias), além do CRM e do cérebro. Lista completa em
   GERENCIAR HUD → Habilidades.
+- **Skills da empresa**: os processos da Ampliize escritos em Markdown no vault
+  (`_jarvis/skills/`). O Jarvis vê a lista em toda conversa e segue o passo a
+  passo certo (cobrança, proposta, revisão semanal…).
+- **Monitor de sistemas**: testa a cada 5 min os sistemas listados em
+  `_jarvis/sistemas.md` (no ar, tempo de resposta, validade do HTTPS, 24 h de
+  disponibilidade) e avisa no "bom dia".
+- **Volume da voz** ajustável (até 3×, com compressor para não distorcer).
 - **Chat** também pela API `POST /api/chat`.
 - **Ampliize CRM** (somente leitura): panorama da operação, clientes, ficha
   360º de um cliente, projetos, linha do tempo de atualizações, melhorias de
@@ -160,6 +167,42 @@ assim vai direto, sem passar pelo Whisper, então a resposta sai mais rápido.
 A resposta em voz é gerada em pedaços: a primeira frase começa a tocar
 enquanto o resto ainda está sendo gerado.
 
+## Skills (processos da empresa)
+
+Cada arquivo em `_jarvis/skills/` do vault é uma skill:
+
+```markdown
+---
+nome: Cobrança de cliente
+quando_usar: pedirem para cobrar alguém, ver quem está devendo ou preparar mensagem de cobrança
+---
+1. Veja as parcelas vencidas com ampliize_financeiro …
+```
+
+O nome e o "quando usar" vão para o prompt; quando o pedido combina, o Jarvis
+chama `skill_abrir` e segue os passos com as ferramentas que tem. Editou no
+Obsidian ou no GitHub, vale na próxima pergunta (cache de 30 s). As regras de
+segurança do Jarvis continuam acima de qualquer skill.
+
+## Monitor de sistemas
+
+Uma linha por sistema em `_jarvis/sistemas.md`:
+
+```markdown
+- CRM da Ampliize | https://ampliize.lovable.app | Ampliize
+- API do Reutiliize | https://xxxx.supabase.co/rest/v1/ | Reutiliize
+```
+
+- **ok**: respondeu (2xx/3xx, ou 401/403 de API que pede chave) em até 3 s e
+  o HTTPS vence em mais de 14 dias.
+- **atenção**: lento, respondeu 4xx ou o certificado vence em menos de 14 dias.
+- **fora**: erro 5xx, sem resposta em 10 s, domínio não encontrado ou
+  certificado vencido.
+
+Só aceita `https://` de endereços públicos e não segue redirecionamentos
+(endereços de rede interna são recusados). Pergunte "como estão os sistemas?"
+ou veja o card no "bom dia".
+
 ## Voz
 
 1. Abra o Jarvis pelo domínio com **HTTPS** (o navegador só libera o
@@ -247,6 +290,8 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET | `/api/lembretes` | Lembretes em aberto |
 | GET | `/api/lembretes/avisos` | Lembretes que venceram (marca como avisados; a HUD chama a cada 30 s) |
 | POST | `/api/lembretes/:id/concluir` | Conclui um lembrete |
+| GET | `/api/sistemas` | Status dos sistemas monitorados (`?atualizar=1` testa agora) |
+| GET | `/api/skills` | Skills (processos) disponíveis |
 | POST | `/api/voice/transcribe` | Corpo = áudio (webm/ogg/mp4/m4a/mp3/wav, até 10 MB) → `{ text }` |
 | POST | `/api/voice/speak` | `{ text }` → `audio/mpeg` |
 | POST | `/api/brain/sync` | Puxa agora o que mudou no vault |

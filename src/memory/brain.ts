@@ -24,7 +24,7 @@ const slugify = (text: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 60) || "nota";
 
-const normalize = (text: string) =>
+export const normalize = (text: string) =>
   text
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")

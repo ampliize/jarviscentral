@@ -19,6 +19,8 @@ import type { Skills } from "./skills/index.js";
 import { NewsService } from "./skills/news.js";
 import { ReminderStore } from "./skills/reminders.js";
 import { WeatherService } from "./skills/weather.js";
+import { SystemMonitor, type MonitorOptions } from "./skills/monitor.js";
+import { Playbooks } from "./skills/playbooks.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 120;
@@ -35,6 +37,8 @@ export interface AppDeps {
   fetchImpl?: typeof fetch;
   /** Testes: esperar o clone do vault antes de responder. */
   awaitBrainSetup?: boolean;
+  /** Testes: DNS, certificado e relógio falsos para o monitor de sistemas. */
+  monitorOptions?: Omit<MonitorOptions, "fetchImpl">;
 }
 
 /** Converte erros da OpenAI em respostas claras para a interface. */
@@ -49,7 +53,7 @@ function aiErrorResponse(c: Context, err: unknown) {
   return c.json({ error: "Erro interno do Jarvis." }, 500);
 }
 
-export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps) {
+export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOptions }: AppDeps) {
   const brain = new Brain(config.dataDir);
   const store = new ConversationStore(config.dataDir);
   await Promise.all([brain.init(), store.init()]);
@@ -60,8 +64,11 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
     news: new NewsService(fetchImpl),
     city: config.city,
     timeZone: config.timeZone,
+    monitor: new SystemMonitor(brain.root, { fetchImpl, ...monitorOptions }),
   };
-  const connectors = buildConnectors(config, brain, fetchImpl, skills);
+  skills.monitor!.start();
+  const playbooks = new Playbooks(brain.root);
+  const connectors = buildConnectors(config, brain, fetchImpl, skills, playbooks);
 
   // Cérebro no Obsidian: clona/sincroniza em segundo plano para não travar a subida.
   if (config.brainGit) {
@@ -246,6 +253,12 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
     return r ? c.json({ ok: true, lembrete: reminderView(r) }) : c.json({ error: "Lembrete não encontrado." }, 404);
   });
 
+  app.get("/api/sistemas", async (c) => {
+    const monitor = skills.monitor!;
+    return c.json({ sistemas: c.req.query("atualizar") === "1" ? await monitor.checkAll() : await monitor.status() });
+  });
+  app.get("/api/skills", async (c) => c.json({ skills: (await playbooks.list()).map((p) => ({ id: p.id, nome: p.nome, quando_usar: p.quando })) }));
+
   app.get("/api/connectors", (c) =>
     c.json(connectors.map((k) => ({ id: k.id, nome: k.name, descricao: k.description, ferramentas: k.tools.map((t) => t.name) }))),
   );
@@ -269,7 +282,8 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
     const history = await store.recent(conversationId);
 
     try {
-      const result = await ask({ config, connectors, history, question, permanentContext: await brain.context(), fetchImpl });
+      const [permanentContext, skillsIndex] = await Promise.all([brain.context(), playbooks.index()]);
+      const result = await ask({ config, connectors, history, question, permanentContext, skillsIndex, fetchImpl });
       const at = new Date().toISOString();
       await store.append(conversationId, { role: "user", content: question, at });
       await store.append(conversationId, { role: "assistant", content: result.text, at: new Date().toISOString(), tools: result.toolRuns });
