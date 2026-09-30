@@ -39,6 +39,7 @@ cada um, na hora, pelo endpoint de integração deles.
   `_jarvis/sistemas.md` (no ar, tempo de resposta, validade do HTTPS, 24 h de
   disponibilidade) e avisa no "bom dia".
 - **Volume da voz** ajustável (até 3×, com compressor para não distorcer).
+- **Trilha do briefing**: uma música abre o briefing, abaixa enquanto ele fala e some no fim. Em GERENCIAR HUD → *Escolher música* você envia o seu arquivo (mp3, m4a, ogg ou wav, até 15 MB; fica no volume `/data`). Sem arquivo, toca uma vinheta própria. Dá para desligar ou mudar o volume ali.
 - **Chat** também pela API `POST /api/chat`.
 - **Ampliize CRM** (somente leitura): panorama da operação, clientes, ficha
   360º de um cliente, projetos, linha do tempo de atualizações, melhorias de
@@ -287,6 +288,8 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET | `/api/connectors` | Projetos conectados e ferramentas |
 | GET | `/api/status` | Modelo, voz e estado do cérebro (Obsidian) |
 | GET | `/api/briefing` | Briefing do dia: `{ saudacao, abertura, cards[], fechamento, atencao, numeros }` |
+| GET · POST · DELETE | `/api/briefing/musica` | Trilha de abertura do briefing (POST com o áudio no corpo, `Content-Type: audio/*`, `X-File-Name` opcional) |
+| GET | `/api/briefing/musica/info` | `{ musica: { nome, tipo, bytes, enviado_em } \| null }` |
 | GET | `/api/lembretes` | Lembretes em aberto |
 | GET | `/api/lembretes/avisos` | Lembretes que venceram (marca como avisados; a HUD chama a cada 30 s) |
 | POST | `/api/lembretes/:id/concluir` | Conclui um lembrete |

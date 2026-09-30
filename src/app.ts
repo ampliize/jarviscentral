@@ -23,6 +23,7 @@ import { ReminderStore } from "./skills/reminders.js";
 import { WeatherService } from "./skills/weather.js";
 import { SystemMonitor, type MonitorOptions } from "./skills/monitor.js";
 import { Playbooks } from "./skills/playbooks.js";
+import { BriefingMusic, MAX_MUSIC_BYTES, musicType } from "./skills/music.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 120;
@@ -71,6 +72,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
   };
   skills.monitor!.start();
   const playbooks = new Playbooks(brain.root);
+  const music = new BriefingMusic(config.dataDir);
   const getOperation = async () => buildOperation(await gatherOperation(config, brain, fetchImpl, new Date(), skills));
   const connectors = buildConnectors(config, brain, fetchImpl, skills, playbooks, [operationConnector(getOperation, skills.alerts!)]);
 
@@ -92,7 +94,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
   const app = new Hono();
   app.use("*", secureHeaders());
   if (config.corsOrigins.length) {
-    app.use("/api/*", cors({ origin: config.corsOrigins, allowHeaders: ["Authorization", "Content-Type"], allowMethods: ["GET", "POST"] }));
+    app.use("/api/*", cors({ origin: config.corsOrigins, allowHeaders: ["Authorization", "Content-Type"], allowMethods: ["GET", "POST", "DELETE"] }));
   }
 
   app.get("/health", (c) => c.json({ ok: true, conectores: connectors.map((k) => k.id) }));
@@ -239,6 +241,32 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       console.error("briefing falhou:", err);
       return c.json({ error: "Não consegui montar o briefing." }, 500);
     }
+  });
+
+  // Trilha de abertura do briefing (arquivo do dono, guardado no volume /data).
+  app.get("/api/briefing/musica/info", async (c) => c.json({ musica: await music.info() }));
+  app.get("/api/briefing/musica", async (c) => {
+    const found = await music.read();
+    if (!found) return c.json({ error: "Nenhuma trilha enviada." }, 404);
+    return new Response(new Uint8Array(found.data), { headers: { "Content-Type": found.info.tipo, "Cache-Control": "no-store" } });
+  });
+  app.post("/api/briefing/musica", async (c) => {
+    const type = c.req.header("content-type") ?? "";
+    if (!musicType(type)) return c.json({ error: "Envie um áudio (mp3, m4a, aac, ogg, wav ou webm)." }, 415);
+    if (Number(c.req.header("content-length") ?? 0) > MAX_MUSIC_BYTES) return c.json({ error: "Arquivo grande demais (máximo 15 MB)." }, 413);
+    const audio = await c.req.arrayBuffer();
+    if (!audio.byteLength) return c.json({ error: "Arquivo vazio." }, 400);
+    if (audio.byteLength > MAX_MUSIC_BYTES) return c.json({ error: "Arquivo grande demais (máximo 15 MB)." }, 413);
+    try {
+      return c.json({ musica: await music.save(audio, type, c.req.header("x-file-name") ?? "") });
+    } catch (err) {
+      console.error("trilha do briefing falhou:", err);
+      return c.json({ error: "Não consegui guardar a trilha." }, 500);
+    }
+  });
+  app.delete("/api/briefing/musica", async (c) => {
+    await music.remove();
+    return c.json({ musica: null });
   });
 
   // Lembretes: a HUD pergunta a cada 30 s quais venceram e avisa em voz.
