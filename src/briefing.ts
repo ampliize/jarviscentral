@@ -2,6 +2,7 @@ import type { Config } from "./config.js";
 import { callResource, ResourceApiError } from "./connectors/resourceApi.js";
 import type { Brain } from "./memory/brain.js";
 import type { Skills } from "./skills/index.js";
+import type { SystemCheck } from "./skills/monitor.js";
 import type { Reminder } from "./skills/reminders.js";
 import type { Weather } from "./skills/weather.js";
 
@@ -43,6 +44,7 @@ export interface Briefing {
     pendencias: number;
     lembretes_hoje: number;
     clima: { cidade: string; temperatura: number } | null;
+    sistemas: { total: number; ok: number } | null;
   };
 }
 
@@ -278,6 +280,27 @@ function remindersCard(list: Reminder[], tz: string, now: Date): BriefingCard | 
   };
 }
 
+/** Sistemas monitorados: só fala dos que estão com problema. */
+function systemsCard(list: SystemCheck[]): BriefingCard | null {
+  if (!list.length) return null;
+  const bad = list.filter((s) => s.status !== "ok");
+  const label = (s: SystemCheck) => `${s.nome}${s.cliente ? ` (${s.cliente})` : ""}`;
+  const why = (s: SystemCheck) => (s.status === "fora" ? `fora do ar, ${s.detalhe ?? "sem resposta"}` : (s.detalhe ?? "com atenção"));
+  return {
+    id: "sistemas",
+    rotulo: "SISTEMAS · MONITOR",
+    titulo: bad.length ? "Sistemas com problema" : "Sistemas no ar",
+    destaque: { valor: `${list.length - bad.length}/${list.length}`, legenda: "no ar e saudáveis" },
+    itens: [
+      ...bad.map((s) => ({ titulo: label(s), detalhe: why(s), alerta: true })),
+      ...list.filter((s) => s.status === "ok").map((s) => ({ titulo: label(s), detalhe: `ok${s.ms != null ? ` · ${s.ms} ms` : ""}${s.ssl_dias != null ? ` · HTTPS vence em ${s.ssl_dias} dias` : ""}` })),
+    ].slice(0, 8),
+    fala: bad.length
+      ? `${bad.length === 1 ? "Um sistema pede atenção" : `${bad.length} sistemas pedem atenção`}: ${spokenList(bad.map((s) => `${label(s)}, ${why(s)}`))}.`
+      : `${list.length === 1 ? "O sistema monitorado está no ar" : `Os ${list.length} sistemas monitorados estão no ar`}, sem alertas.`,
+  };
+}
+
 export interface BuildInput {
   crm: CrmBriefing | null;
   crmError?: string | null;
@@ -287,6 +310,8 @@ export interface BuildInput {
   clima?: Weather | null;
   /** Lembretes em aberto que vencem até o fim de hoje (inclui os atrasados de outros dias). */
   lembretes?: Reminder[];
+  /** Último teste dos sistemas monitorados (null = monitor indisponível). */
+  sistemas?: SystemCheck[] | null;
   ownerName: string;
   timeZone: string;
   now?: Date;
@@ -303,6 +328,9 @@ export function buildBriefing(input: BuildInput): Briefing {
   const reminders = remindersCard(input.lembretes ?? [], tz, now);
   if (reminders) cards.push(reminders);
   const lateReminders = (input.lembretes ?? []).filter((r) => Date.parse(r.quando) < now.getTime()).length;
+  const systems = systemsCard(input.sistemas ?? []);
+  if (systems) cards.push(systems);
+  const badSystems = (input.sistemas ?? []).filter((s) => s.status !== "ok").length;
 
   if (input.crm) {
     const { financeiro, tarefas, comercial, sistema } = input.crm;
@@ -322,14 +350,16 @@ export function buildBriefing(input: BuildInput): Briefing {
       total(tarefas.atrasadas, tarefas.atrasadas_total) +
       total(tarefas.bloqueadas, tarefas.bloqueadas_total) +
       comercial.follow_ups_atrasados +
-      sistema.erros_abertos +
-      lateReminders;
+      sistema.erros_abertos;
   } else {
     const why = input.crmConfigured
       ? `Não consegui ler o CRM agora${input.crmError ? ` (${input.crmError})` : ""}.`
       : "O CRM ainda não está conectado: falta a AMPLIIZE_API_KEY no Easypanel.";
     cards.push({ id: "crm", rotulo: "CRM · CONEXÃO", titulo: "CRM indisponível", itens: [{ titulo: why, alerta: true }], fala: why });
   }
+
+  // Lembretes atrasados e sistemas com problema contam mesmo sem o CRM.
+  atencao += lateReminders + badSystems;
 
   const brain = brainCard(input.pendencias, input.inbox);
   if (brain) cards.push(brain);
@@ -338,7 +368,7 @@ export function buildBriefing(input: BuildInput): Briefing {
     ? atencao
       ? `${hello} Revisei o CRM e o cérebro. ${atencao === 1 ? "Um ponto pede" : `${atencao} pontos pedem`} sua atenção hoje.`
       : `${hello} Revisei o CRM e o cérebro. Nada urgente hoje.`
-    : `${hello} Revisei o que consegui.`;
+    : `${hello} Revisei o que consegui.${atencao ? ` ${atencao === 1 ? "Um ponto pede" : `${atencao} pontos pedem`} sua atenção.` : ""}`;
   const fechamento = atencao ? "Esse é o essencial. Quer que eu detalhe algum ponto?" : "Esse é o essencial. Bom trabalho.";
   const crm = input.crm;
   const numeros = {
@@ -349,6 +379,7 @@ export function buildBriefing(input: BuildInput): Briefing {
     pendencias: input.pendencias.length,
     lembretes_hoje: input.lembretes?.length ?? 0,
     clima: input.clima ? { cidade: input.clima.cidade.replace(/\s*\(.*\)$/, ""), temperatura: input.clima.agora.temperatura } : null,
+    sistemas: input.sistemas?.length ? { total: input.sistemas.length, ok: input.sistemas.length - badSystems } : null,
   };
   return { saudacao: hello, abertura, cards, fechamento, atencao, numeros };
 }
@@ -363,7 +394,11 @@ const endOfToday = (now: Date, timeZone: string) => {
 export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typeof fetch, now = new Date(), skills?: Skills): Promise<Briefing> {
   let crmError: string | null = null;
   // CRM, clima e lembretes em paralelo; clima fora do ar não derruba o briefing.
-  const [crm, clima, lembretes, pendencias, inbox] = await Promise.all([
+  // Sistemas: usa o último teste (até 10 min); se precisar testar, espera no máximo 6 s.
+  const systemsStatus = skills?.monitor
+    ? Promise.race([skills.monitor.status(10 * 60 * 1000), new Promise<null>((r) => setTimeout(() => r(null), 6_000).unref())]).catch(() => null)
+    : Promise.resolve(null);
+  const [crm, clima, lembretes, pendencias, inbox, sistemas] = await Promise.all([
     config.ampliize
       ? (callResource({ ...config.ampliize, fetchImpl, timeoutMs: 15_000 }, "briefing") as Promise<CrmBriefing>).catch((err) => {
           crmError = err instanceof ResourceApiError ? err.message : "falha na consulta";
@@ -374,6 +409,7 @@ export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typ
     skills ? skills.reminders.open().then((list) => list.filter(endOfToday(now, config.timeZone))) : Promise.resolve([]),
     brain.pendencias(),
     brain.inboxCount(),
+    systemsStatus,
   ]);
   return buildBriefing({
     crm,
@@ -383,6 +419,7 @@ export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typ
     inbox,
     clima,
     lembretes,
+    sistemas,
     ownerName: config.ownerName,
     timeZone: config.timeZone,
     now,

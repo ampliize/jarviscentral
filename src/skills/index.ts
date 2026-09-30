@@ -1,6 +1,7 @@
 import { toolResult, type Connector } from "../connectors/types.js";
 import { NewsError, type NewsService } from "./news.js";
 import { parseWhen, ReminderError, type ReminderStore } from "./reminders.js";
+import type { SystemMonitor } from "./monitor.js";
 import { WeatherError, type WeatherService } from "./weather.js";
 
 export interface Skills {
@@ -10,6 +11,8 @@ export interface Skills {
   /** Cidade padrão do clima (JARVIS_CITY). */
   city: string;
   timeZone: string;
+  /** Monitor dos sistemas (lista em _jarvis/sistemas.md). */
+  monitor?: SystemMonitor;
 }
 
 const obj = (properties: Record<string, unknown>) => ({
@@ -35,7 +38,7 @@ export function skillsConnector(s: Skills): Connector {
   return {
     id: "habilidades",
     name: "Habilidades",
-    description: "Lembretes com aviso na hora, clima e notícias.",
+    description: "Lembretes com aviso na hora, clima, notícias e status dos sistemas (nossos e dos clientes).",
     tools: [
       {
         name: "lembrete_criar",
@@ -81,6 +84,21 @@ export function skillsConnector(s: Skills): Connector {
           }
         },
       },
+      ...(s.monitor
+        ? [
+            {
+              name: "sistemas_status",
+              description:
+                "Status dos sistemas monitorados (nossos e dos clientes): no ar ou fora, tempo de resposta, validade do certificado HTTPS e disponibilidade nas últimas 24 h. A lista fica no vault em _jarvis/sistemas.md.",
+              parameters: obj({ atualizar: { type: ["boolean", "null"], description: "true = testa tudo agora em vez de usar o último teste (até 5 min)." } }),
+              run: async (args: Record<string, unknown>) => {
+                const monitor = s.monitor!;
+                const list = args.atualizar === true ? await monitor.checkAll() : await monitor.status();
+                return toolResult(true, list.length ? list : { resultado: "nenhum sistema cadastrado em _jarvis/sistemas.md" });
+              },
+            },
+          ]
+        : []),
       {
         name: "noticias",
         description:

@@ -225,6 +225,7 @@
     <div class="rotulo">GERENCIAR HUD</div>
     <label class="opt" id="wakeOpt" title="Diga “Jarvis” e a pergunta, com esta aba aberta (Chrome ou Edge)">Chamar por “Jarvis” <input type="checkbox" id="wakeToggle"></label>
     <label class="opt">Falar as respostas <input type="checkbox" id="speakToggle"></label>
+    <label class="opt" title="Para a direita, mais alto (acima do volume do sistema, sem distorcer)">Volume da voz <input type="range" id="volume" min="0.5" max="3" step="0.1"></label>
     <label class="opt" title="Bata duas palmas para ele começar a ouvir (com esta aba aberta)">Modo palmas <input type="checkbox" id="clapToggle"></label>
     <label class="opt" title="Para a direita, precisa bater mais forte">Sensibilidade da palma <input type="range" id="clapThresh" min="0.15" max="0.9" step="0.05"></label>
     <div class="actions">
@@ -419,17 +420,34 @@
   // ================= voz (falar) =================
   const player = new Audio();
   player.preload = 'auto';
-  let outCtx = null, outAnalyser = null, outBuf = null;
+  // Voz → ganho (volume) → compressor (sobe o volume sem distorcer) → medidor → alto-falante.
+  let outCtx = null, outAnalyser = null, outBuf = null, outGain = null;
+  const volumeInput = $('volume');
+  volumeInput.value = store.get('jarvis_volume', '1.8');
   const ensureOut = () => {
     if (outCtx) return;
     try {
       outCtx = new (window.AudioContext || window.webkitAudioContext)();
+      outGain = outCtx.createGain();
+      outGain.gain.value = Number(volumeInput.value) || 1.8;
+      const comp = outCtx.createDynamicsCompressor();
+      comp.threshold.value = -20;
+      comp.knee.value = 12;
+      comp.ratio.value = 4;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.25;
       outAnalyser = outCtx.createAnalyser();
       outAnalyser.fftSize = 512;
       outBuf = new Uint8Array(outAnalyser.fftSize);
-      outCtx.createMediaElementSource(player).connect(outAnalyser);
+      outCtx.createMediaElementSource(player).connect(outGain);
+      outGain.connect(comp);
+      comp.connect(outAnalyser);
       outAnalyser.connect(outCtx.destination);
-    } catch { outCtx = null; outAnalyser = null; }
+    } catch { outCtx = null; outAnalyser = null; outGain = null; }
+  };
+  volumeInput.oninput = () => {
+    store.set('jarvis_volume', volumeInput.value);
+    if (outGain) outGain.gain.value = Number(volumeInput.value);
   };
   const outLevel = () => {
     if (!outAnalyser || player.paused) return 0;
@@ -542,7 +560,7 @@
         if (voice && 'speechSynthesis' in window) {
           try {
             const u = new SpeechSynthesisUtterance(s);
-            u.lang = 'pt-BR'; u.onend = next; u.onerror = next;
+            u.lang = 'pt-BR'; u.volume = 1; u.onend = next; u.onerror = next;
             speechSynthesis.speak(u);
             return;
           } catch {}
@@ -617,6 +635,7 @@
     if (n.leads_em_aberto != null) rows.push({ label: 'Leads em aberto', valor: String(n.leads_em_aberto) });
     if (n.pendencias) rows.push({ label: 'Pendências', valor: String(n.pendencias) });
     if (n.lembretes_hoje) rows.push({ label: 'Lembretes hoje', valor: String(n.lembretes_hoje) });
+    if (n.sistemas) rows.push({ label: 'Sistemas no ar', valor: n.sistemas.ok + '/' + n.sistemas.total, alerta: n.sistemas.ok < n.sistemas.total });
     if (n.clima) rows.unshift({ label: n.clima.cidade, valor: n.clima.temperatura + '°' });
     if (!rows.length) return;
     $('pulse').replaceChildren(...rows.map((r) => {
@@ -956,11 +975,19 @@
     ['Lembretes', '“me lembra de cobrar a Ruddar amanhã às 9h” · “quais meus lembretes?”'],
     ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
     ['Notícias', '“notícias de marketing digital” · “o que saiu sobre Aracaju?”'],
+    ['Sistemas dos clientes', '“como estão os sistemas?” · testa site/API, tempo de resposta e HTTPS (lista em _jarvis/sistemas.md)'],
     ['Cérebro (Obsidian)', '“o que eu anotei sobre a Souza Gneri?” · “anota que …”'],
   ];
-  $('skillsBtn').onclick = () => {
+  $('skillsBtn').onclick = async () => {
     toggleHud(false);
-    showCard({ rotulo: 'JARVIS · HABILIDADES', titulo: 'O que eu sei fazer', itens: SKILLS.map(([titulo, detalhe]) => ({ titulo, detalhe })) });
+    const itens = SKILLS.map(([titulo, detalhe]) => ({ titulo, detalhe }));
+    // Skills da empresa: os processos escritos no vault (_jarvis/skills).
+    try {
+      const r = await api('/api/skills');
+      const { skills = [] } = r.ok ? await r.json() : {};
+      for (const k of skills) itens.push({ titulo: 'Skill: ' + k.nome, detalhe: k.quando_usar || k.id });
+    } catch {}
+    showCard({ rotulo: 'JARVIS · HABILIDADES', titulo: 'O que eu sei fazer', itens });
   };
 
   // ================= modo palmas =================
