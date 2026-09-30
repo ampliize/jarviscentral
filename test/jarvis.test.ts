@@ -170,4 +170,7 @@ test("memória: anota só na inbox, não sobrescreve e encontra pela busca", asy
   const evil = await brain.propose("../../etc/passwd", "x");
   assert.ok(evil.startsWith("inbox/") && !evil.includes(".."));
   assert.equal((await readdir(path.join(dir, "brain", "inbox"))).length, 3);
+  // Termo que só aparece no nome do arquivo ainda devolve o conteúdo da nota.
+  const byName = await brain.search("passwd");
+  assert.ok(byName[0] && byName[0].snippet.length > 0);
 });

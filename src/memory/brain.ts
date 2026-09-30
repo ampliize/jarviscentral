@@ -81,7 +81,9 @@ export class Brain {
         score += inBody + (name.includes(term) ? 3 : 0);
       }
       if (score === 0) continue;
-      const first = Math.max(0, Math.min(...terms.map((t) => lower.indexOf(t)).filter((i) => i >= 0)));
+      // Termo só no nome do arquivo: mostra o começo da nota.
+      const positions = terms.map((t) => lower.indexOf(t)).filter((i) => i >= 0);
+      const first = positions.length ? Math.min(...positions) : 0;
       const start = Math.max(0, first - 200);
       hits.push({ path: path.relative(this.root, file), score, snippet: content.slice(start, start + 700).trim() });
     }
