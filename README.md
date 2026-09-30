@@ -15,10 +15,19 @@ cada um, na hora, pelo endpoint de integração deles.
                 └────────────────────────────────────────────────────────────────┘
 ```
 
-## O que ele faz hoje (v0.2)
+## O que ele faz hoje (v0.3)
 
-- **Chat** em `/` (interface provisória, será trocada pelo frontend definitivo)
-  e na API `POST /api/chat`.
+- **HUD com o camaleão da Ampliize** em `/`: um holograma do camaleão do logo
+  que reage à voz (o maxilar abre quando ele fala, pisca, muda de cor quando
+  está ouvindo ou pensando), respostas em cards, cards anteriores numa doca,
+  legenda sincronizada com a fala e o painel "Pulso" com os números do dia.
+- **Briefing do dia**: diga ou escreva "bom dia" (ou toque em BRIEFING). Ele
+  lê o CRM e o cérebro e apresenta, card por card e falando: dinheiro
+  (recebido no mês, cobranças vencidas e da semana, contas a pagar), entregas
+  (tarefas atrasadas, vencendo e bloqueadas), comercial (leads novos,
+  follow-ups) e as pendências de `pendencias.md` no vault. Os números saem
+  direto dos dados, sem IA, então funciona mesmo sem a chave da OpenAI.
+- **Chat** também pela API `POST /api/chat`.
 - **Ampliize CRM** (somente leitura): panorama da operação, clientes, ficha
   360º de um cliente, projetos, linha do tempo de atualizações, melhorias de
   processo (falhas e acertos), financeiro do mês, funil comercial e erros do
@@ -107,6 +116,20 @@ O Jarvis já criou a estrutura no `ampliize-brain`. Agora ligue o seu Obsidian:
 
 No Mac é igual (Git já vem com o Xcode Command Line Tools).
 
+## Interface (HUD)
+
+| Ação | Como |
+|---|---|
+| Briefing do dia | "bom dia", "boa tarde", "briefing" ou botão **BRIEFING** |
+| Falar | botão do microfone ou tecla **espaço**; para sozinho quando você fica em silêncio |
+| Interromper a fala | **Esc** (ou começar a falar de novo) |
+| Rever um card | clique nele na doca (coluna à direita no PC, fileira embaixo no celular) |
+| Voz, modo palmas, configuração, nova conversa, sair | **GERENCIAR HUD** |
+
+O holograma é desenhado no navegador (canvas) a partir de `public/camaleao.png`,
+a silhueta do camaleão do logo. Para trocar o desenho, substitua esse PNG
+(fundo transparente, camaleão em branco) mantendo a proporção.
+
 ## Voz
 
 1. Abra o Jarvis pelo domínio com **HTTPS** (o navegador só libera o
@@ -190,6 +213,7 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET | `/api/conversations/:id` | Mensagens de uma conversa |
 | GET | `/api/connectors` | Projetos conectados e ferramentas |
 | GET | `/api/status` | Modelo, voz e estado do cérebro (Obsidian) |
+| GET | `/api/briefing` | Briefing do dia: `{ saudacao, abertura, cards[], fechamento, atencao }` |
 | POST | `/api/voice/transcribe` | Corpo = áudio (webm/ogg/mp4/m4a/mp3/wav, até 10 MB) → `{ text }` |
 | POST | `/api/voice/speak` | `{ text }` → `audio/mpeg` |
 | POST | `/api/brain/sync` | Puxa agora o que mudou no vault |
