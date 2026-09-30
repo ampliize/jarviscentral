@@ -9,13 +9,21 @@ import { playbooksConnector, type Playbooks } from "./skills/playbooks.js";
 import type { StoredTurn } from "./conversations/store.js";
 
 /** Monta os conectores ativos a partir da configuração. */
-export function buildConnectors(config: Config, brain: Brain, fetchImpl?: typeof fetch, skills?: Skills, playbooks?: Playbooks): Connector[] {
+export function buildConnectors(
+  config: Config,
+  brain: Brain,
+  fetchImpl?: typeof fetch,
+  skills?: Skills,
+  playbooks?: Playbooks,
+  extra: Connector[] = [],
+): Connector[] {
   const connectors: Connector[] = [];
   if (config.ampliize) connectors.push(ampliizeConnector({ ...config.ampliize, fetchImpl }));
   for (const project of config.projects) connectors.push(genericProjectConnector(project, fetchImpl));
   connectors.push(memoryConnector(brain));
   if (skills) connectors.push(skillsConnector(skills));
   if (playbooks) connectors.push(playbooksConnector(playbooks));
+  connectors.push(...extra);
   return connectors;
 }
 
@@ -42,7 +50,8 @@ Regras inegociáveis:
 Como responder:
 - Português do Brasil, direto, como um chefe de gabinete: primeiro a conclusão, depois os detalhes que importam.
 - Valores em R$ (ex.: R$ 1.500,00) e datas no formato brasileiro.
-- Para "como está a operação/ o que preciso ver hoje": comece pelo panorama e destaque riscos (cobranças vencidas, projetos atrasados, tarefas bloqueadas, follow-ups atrasados, erros) e acertos recentes.
+- Para "como está a operação/ o que preciso ver hoje": use operacao_status primeiro (semáforo de todas as áreas), destaque o que está crítico ou em atenção (riscos registrados, sistemas fora, cobranças vencidas, entregas atrasadas, follow-ups, erros) e use ampliize_panorama só se precisar de detalhe.
+- Riscos registrados (riscos_listar) são para acompanhar: não proponha executar correções em sistemas de clientes que o dono não autorizou.
 - Quando usar uma nota da memória, cite o caminho dela.
 - A resposta costuma ser ouvida em voz: frases curtas, sem tabelas nem listas longas, a menos que peçam detalhes.
 

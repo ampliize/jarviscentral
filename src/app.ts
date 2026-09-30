@@ -14,7 +14,9 @@ import { BrainGit } from "./memory/brainGit.js";
 import { MAX_AUDIO_BYTES, audioExtension, speak, transcribe } from "./voice.js";
 import { ensureAccessToken } from "./setup.js";
 import { callResource } from "./connectors/resourceApi.js";
-import { loadBriefing } from "./briefing.js";
+import { buildOperation, gatherOperation, loadBriefing } from "./briefing.js";
+import { AlertBook } from "./skills/alerts.js";
+import { operationConnector } from "./skills/operation.js";
 import type { Skills } from "./skills/index.js";
 import { NewsService } from "./skills/news.js";
 import { ReminderStore } from "./skills/reminders.js";
@@ -65,10 +67,12 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     city: config.city,
     timeZone: config.timeZone,
     monitor: new SystemMonitor(brain.root, { fetchImpl, ...monitorOptions }),
+    alerts: new AlertBook(brain.root),
   };
   skills.monitor!.start();
   const playbooks = new Playbooks(brain.root);
-  const connectors = buildConnectors(config, brain, fetchImpl, skills, playbooks);
+  const getOperation = async () => buildOperation(await gatherOperation(config, brain, fetchImpl, new Date(), skills));
+  const connectors = buildConnectors(config, brain, fetchImpl, skills, playbooks, [operationConnector(getOperation, skills.alerts!)]);
 
   // Cérebro no Obsidian: clona/sincroniza em segundo plano para não travar a subida.
   if (config.brainGit) {
@@ -257,6 +261,16 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     const monitor = skills.monitor!;
     return c.json({ sistemas: c.req.query("atualizar") === "1" ? await monitor.checkAll() : await monitor.status() });
   });
+  // Monitor da operação: semáforo por área (mesmos dados do briefing, sem fala).
+  app.get("/api/operacao", async (c) => {
+    try {
+      return c.json(await getOperation());
+    } catch (err) {
+      console.error("monitor da operação falhou:", err);
+      return c.json({ error: "Não consegui montar o monitor da operação." }, 500);
+    }
+  });
+
   app.get("/api/skills", async (c) => c.json({ skills: (await playbooks.list()).map((p) => ({ id: p.id, nome: p.nome, quando_usar: p.quando })) }));
 
   app.get("/api/connectors", (c) =>

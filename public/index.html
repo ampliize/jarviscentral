@@ -184,6 +184,8 @@
     <span class="sep"></span>
     <button type="button" id="briefBtn" title="Resumo do dia (ou diga “bom dia”)">BRIEFING</button>
     <span class="sep"></span>
+    <button type="button" id="opsBtn" title="Semáforo da operação inteira">MONITOR</button>
+    <span class="sep"></span>
     <button type="button" id="hudBtn" aria-expanded="false" aria-controls="hud">GERENCIAR <span class="hide-sm">HUD</span></button>
   </div>
 </div>
@@ -624,6 +626,45 @@
   }
   $('briefBtn').onclick = () => runBriefing();
 
+  // ================= monitor da operação =================
+  const STATE_ICON = { ok: '🟢', atencao: '🟡', critico: '🔴', sem_dados: '⚪' };
+  const STATE_TEXT = { ok: 'tudo em ordem', atencao: 'pedindo atenção', critico: 'com ponto crítico', sem_dados: 'sem dados' };
+  async function showOperation() {
+    if (busy) return;
+    stopSpeaking();
+    ensureOut();
+    setBusy(true);
+    setMode('thinking');
+    try {
+      const r = await api('/api/operacao');
+      const op = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(op.error || 'Não consegui montar o monitor.');
+      const areas = op.areas || [];
+      showCard({
+        rotulo: 'OPERAÇÃO · MONITOR',
+        titulo: 'Operação ' + (STATE_TEXT[op.geral] || ''),
+        destaque: { valor: STATE_ICON[op.geral] || '⚪', legenda: 'geral' },
+        itens: areas.map((a) => ({
+          titulo: (STATE_ICON[a.estado] || '⚪') + ' ' + a.nome + ' · ' + a.resumo,
+          detalhe: (a.itens || []).slice(0, 3).join(' · ') || undefined,
+          alerta: a.estado === 'critico' || a.estado === 'atencao',
+        })),
+      });
+      setBusy(false);
+      const hot = areas.filter((a) => a.estado === 'critico' || a.estado === 'atencao');
+      const fala = hot.length
+        ? 'Operação ' + STATE_TEXT[op.geral] + '. ' + hot.map((a) => a.nome + ': ' + a.resumo + (a.itens?.[0] ? ', ' + a.itens[0] : '')).join('. ') + '.'
+        : 'Operação em ordem. Todas as áreas estão no verde.';
+      if (await say(fala)) subtitle('');
+    } catch (err) {
+      showError(err.message || 'Falha no monitor.');
+    } finally {
+      setBusy(false);
+      if (mode !== 'error' && mode !== 'listening' && mode !== 'transcribing') restMode();
+    }
+  }
+  $('opsBtn').onclick = showOperation;
+
   // Painel lateral com os números principais.
   const brl = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v);
   function fillPulse(data) {
@@ -636,6 +677,7 @@
     if (n.pendencias) rows.push({ label: 'Pendências', valor: String(n.pendencias) });
     if (n.lembretes_hoje) rows.push({ label: 'Lembretes hoje', valor: String(n.lembretes_hoje) });
     if (n.sistemas) rows.push({ label: 'Sistemas no ar', valor: n.sistemas.ok + '/' + n.sistemas.total, alerta: n.sistemas.ok < n.sistemas.total });
+    if (n.riscos) rows.push({ label: 'Riscos em aberto', valor: String(n.riscos), alerta: true });
     if (n.clima) rows.unshift({ label: n.clima.cidade, valor: n.clima.temperatura + '°' });
     if (!rows.length) return;
     $('pulse').replaceChildren(...rows.map((r) => {
@@ -975,6 +1017,8 @@
     ['Lembretes', '“me lembra de cobrar a Ruddar amanhã às 9h” · “quais meus lembretes?”'],
     ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
     ['Notícias', '“notícias de marketing digital” · “o que saiu sobre Aracaju?”'],
+    ['Monitor da operação', 'botão MONITOR ou “como está a operação?”: semáforo de sistemas, riscos, dinheiro, entregas, comercial, CRM e lembretes'],
+    ['Riscos registrados', '“quais riscos temos?” · lista em _jarvis/alertas.md (marque [x] quando resolver)'],
     ['Sistemas dos clientes', '“como estão os sistemas?” · testa site/API, tempo de resposta e HTTPS (lista em _jarvis/sistemas.md)'],
     ['Cérebro (Obsidian)', '“o que eu anotei sobre a Souza Gneri?” · “anota que …”'],
   ];
