@@ -15,7 +15,7 @@ cada um, na hora, pelo endpoint de integração deles.
                 └────────────────────────────────────────────────────────────────┘
 ```
 
-## O que ele faz hoje (v0.3)
+## O que ele faz hoje (v0.4)
 
 - **HUD com o camaleão da Ampliize** em `/`: um holograma do camaleão do logo
   que reage à voz (o maxilar abre quando ele fala, pisca, muda de cor quando
@@ -27,6 +27,11 @@ cada um, na hora, pelo endpoint de integração deles.
   (tarefas atrasadas, vencendo e bloqueadas), comercial (leads novos,
   follow-ups) e as pendências de `pendencias.md` no vault. Os números saem
   direto dos dados, sem IA, então funciona mesmo sem a chave da OpenAI.
+- **Chamar por "Jarvis"** (mãos livres): com a aba aberta no Chrome/Edge, diga
+  "Jarvis, como está a operação?" ou só "Jarvis" e depois a pergunta.
+- **Habilidades**: lembretes com aviso em voz na hora, clima (Open-Meteo) e
+  notícias (Google Notícias), além do CRM e do cérebro. Lista completa em
+  GERENCIAR HUD → Habilidades.
 - **Chat** também pela API `POST /api/chat`.
 - **Ampliize CRM** (somente leitura): panorama da operação, clientes, ficha
   360º de um cliente, projetos, linha do tempo de atualizações, melhorias de
@@ -121,6 +126,7 @@ No Mac é igual (Git já vem com o Xcode Command Line Tools).
 | Ação | Como |
 |---|---|
 | Briefing do dia | "bom dia", "boa tarde", "briefing" ou botão **BRIEFING** |
+| Chamar por voz | "**Jarvis**, …" (liga/desliga em GERENCIAR HUD → Chamar por “Jarvis”) |
 | Falar | botão do microfone ou tecla **espaço**; para sozinho quando você fica em silêncio |
 | Interromper a fala | **Esc** (ou começar a falar de novo) |
 | Rever um card | clique nele na doca (coluna à direita no PC, fileira embaixo no celular) |
@@ -129,6 +135,30 @@ No Mac é igual (Git já vem com o Xcode Command Line Tools).
 O holograma é desenhado no navegador (canvas) a partir de `public/camaleao.png`,
 a silhueta do camaleão do logo. Para trocar o desenho, substitua esse PNG
 (fundo transparente, camaleão em branco) mantendo a proporção.
+
+## Habilidades
+
+| Habilidade | Exemplos | De onde vem |
+|---|---|---|
+| Briefing do dia | "bom dia", "briefing" | CRM + clima + lembretes + `pendencias.md` |
+| CRM da Ampliize | "quem está com parcela vencida?", "como estão os projetos?" | integration-api (leitura) |
+| Lembretes | "me lembra de cobrar a Ruddar amanhã às 9h", "quais meus lembretes?", "conclui o lembrete X" | `/data/lembretes.json` |
+| Clima | "vai chover hoje?", "como está o tempo em Maceió?" | Open-Meteo (sem chave) |
+| Notícias | "notícias de marketing digital", "o que saiu sobre Aracaju?" | Google Notícias RSS (sem chave) |
+| Cérebro | "o que eu anotei sobre a Souza Gneri?", "anota que …" | vault do Obsidian |
+
+O aviso dos lembretes aparece na HUD (card + bip + voz) com a aba aberta; se
+ela estiver fechada, o lembrete avisa assim que você abrir e entra no card de
+lembretes do "bom dia". A cidade padrão do clima é `JARVIS_CITY` (Aracaju).
+
+**Chamar por "Jarvis"** vem desligado: no primeiro acesso aparece o card "Quer
+me chamar pelo nome?" com o botão **Ativar** (ou ligue em GERENCIAR HUD). Usa o
+reconhecimento de voz do próprio navegador (Chrome/Edge; o áudio passa pelo
+serviço de voz do navegador enquanto a opção estiver ligada). Enquanto ele
+fala, o reconhecimento pausa para não ouvir a própria voz. A pergunta feita
+assim vai direto, sem passar pelo Whisper, então a resposta sai mais rápido.
+A resposta em voz é gerada em pedaços: a primeira frase começa a tocar
+enquanto o resto ainda está sendo gerado.
 
 ## Voz
 
@@ -213,7 +243,10 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET | `/api/conversations/:id` | Mensagens de uma conversa |
 | GET | `/api/connectors` | Projetos conectados e ferramentas |
 | GET | `/api/status` | Modelo, voz e estado do cérebro (Obsidian) |
-| GET | `/api/briefing` | Briefing do dia: `{ saudacao, abertura, cards[], fechamento, atencao }` |
+| GET | `/api/briefing` | Briefing do dia: `{ saudacao, abertura, cards[], fechamento, atencao, numeros }` |
+| GET | `/api/lembretes` | Lembretes em aberto |
+| GET | `/api/lembretes/avisos` | Lembretes que venceram (marca como avisados; a HUD chama a cada 30 s) |
+| POST | `/api/lembretes/:id/concluir` | Conclui um lembrete |
 | POST | `/api/voice/transcribe` | Corpo = áudio (webm/ogg/mp4/m4a/mp3/wav, até 10 MB) → `{ text }` |
 | POST | `/api/voice/speak` | `{ text }` → `audio/mpeg` |
 | POST | `/api/brain/sync` | Puxa agora o que mudou no vault |

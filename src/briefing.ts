@@ -1,6 +1,9 @@
 import type { Config } from "./config.js";
 import { callResource, ResourceApiError } from "./connectors/resourceApi.js";
 import type { Brain } from "./memory/brain.js";
+import type { Skills } from "./skills/index.js";
+import type { Reminder } from "./skills/reminders.js";
+import type { Weather } from "./skills/weather.js";
 
 /**
  * Briefing do dia: junta o CRM (recurso "briefing" da integration-api) e as
@@ -32,7 +35,15 @@ export interface Briefing {
   fechamento: string;
   atencao: number;
   /** Totais para o painel lateral (não dependem do corte das listas). */
-  numeros: { recebido_no_mes: number | null; vencidas: number | null; tarefas_atrasadas: number | null; leads_em_aberto: number | null; pendencias: number };
+  numeros: {
+    recebido_no_mes: number | null;
+    vencidas: number | null;
+    tarefas_atrasadas: number | null;
+    leads_em_aberto: number | null;
+    pendencias: number;
+    lembretes_hoje: number;
+    clima: { cidade: string; temperatura: number } | null;
+  };
 }
 
 interface Invoice { cliente: string | null; valor: number; vencimento: string; obs?: string | null }
@@ -226,12 +237,56 @@ function brainCard(pendencias: string[], inbox: number): BriefingCard | null {
   };
 }
 
+function weatherCard(w: Weather): BriefingCard {
+  const rain = w.hoje.chance_de_chuva;
+  const hasRange = w.hoje.minima != null && w.hoje.maxima != null;
+  const city = w.cidade.replace(/\s*\(.*\)$/, "");
+  return {
+    id: "clima",
+    rotulo: "PANORAMA · CLIMA",
+    titulo: city,
+    destaque: { valor: `${w.agora.temperatura}°`, legenda: w.agora.condicao },
+    itens: [
+      ...(hasRange ? [{ titulo: `Hoje: mínima ${w.hoje.minima}° e máxima ${w.hoje.maxima}°`, detalhe: rain != null ? `${rain}% de chance de chuva` : undefined }] : []),
+      ...(w.amanha ? [{ titulo: `Amanhã: ${w.amanha.minima}° a ${w.amanha.maxima}°`, detalhe: w.amanha.condicao }] : []),
+    ],
+    fala:
+      `Em ${city} agora faz ${w.agora.temperatura} graus, ${w.agora.condicao}.` +
+      (hasRange ? ` Hoje a mínima é ${w.hoje.minima} e a máxima ${w.hoje.maxima}${rain != null ? `, com ${rain}% de chance de chuva` : ""}.` : ""),
+  };
+}
+
+/** Lembretes de hoje e os que passaram da hora sem ser concluídos (esses contam como atenção). */
+function remindersCard(list: Reminder[], tz: string, now: Date): BriefingCard | null {
+  if (!list.length) return null;
+  const fmt = (r: Reminder, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("pt-BR", { timeZone: tz, ...opts }).format(new Date(r.quando));
+  const hour = (r: Reminder) => fmt(r, { hour: "2-digit", minute: "2-digit" });
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(now);
+  const sameDay = (r: Reminder) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(r.quando)) === today;
+  const late = (r: Reminder) => Date.parse(r.quando) < now.getTime();
+  const since = (r: Reminder) => (sameDay(r) ? hour(r) : `${fmt(r, { day: "2-digit", month: "2-digit" })} às ${hour(r)}`);
+  const nLate = list.filter(late).length;
+  return {
+    id: "lembretes",
+    rotulo: "AGENDA · LEMBRETES",
+    titulo: nLate ? "Lembretes pedindo atenção" : "Lembretes de hoje",
+    destaque: { valor: String(list.length), legenda: list.length === 1 ? "lembrete" : "lembretes" },
+    itens: list.slice(0, 8).map((r) => ({ titulo: r.texto, detalhe: late(r) ? `atrasado desde ${since(r)}` : `hoje às ${hour(r)}`, alerta: late(r) })),
+    fala: `${list.length === 1 ? "Você tem um lembrete" : `Você tem ${list.length} lembretes`}: ${spokenList(
+      list.map((r) => `${r.texto}, ${late(r) ? `atrasado desde ${since(r)}` : `às ${hour(r)}`}`),
+    )}.`,
+  };
+}
+
 export interface BuildInput {
   crm: CrmBriefing | null;
   crmError?: string | null;
   crmConfigured: boolean;
   pendencias: string[];
   inbox: number;
+  clima?: Weather | null;
+  /** Lembretes em aberto que vencem até o fim de hoje (inclui os atrasados de outros dias). */
+  lembretes?: Reminder[];
   ownerName: string;
   timeZone: string;
   now?: Date;
@@ -244,6 +299,10 @@ export function buildBriefing(input: BuildInput): Briefing {
   const month = new Intl.DateTimeFormat("pt-BR", { timeZone: tz, month: "long" }).format(now);
   const cards: BriefingCard[] = [];
   let atencao = 0;
+  if (input.clima) cards.push(weatherCard(input.clima));
+  const reminders = remindersCard(input.lembretes ?? [], tz, now);
+  if (reminders) cards.push(reminders);
+  const lateReminders = (input.lembretes ?? []).filter((r) => Date.parse(r.quando) < now.getTime()).length;
 
   if (input.crm) {
     const { financeiro, tarefas, comercial, sistema } = input.crm;
@@ -263,7 +322,8 @@ export function buildBriefing(input: BuildInput): Briefing {
       total(tarefas.atrasadas, tarefas.atrasadas_total) +
       total(tarefas.bloqueadas, tarefas.bloqueadas_total) +
       comercial.follow_ups_atrasados +
-      sistema.erros_abertos;
+      sistema.erros_abertos +
+      lateReminders;
   } else {
     const why = input.crmConfigured
       ? `Não consegui ler o CRM agora${input.crmError ? ` (${input.crmError})` : ""}.`
@@ -287,27 +347,42 @@ export function buildBriefing(input: BuildInput): Briefing {
     tarefas_atrasadas: crm ? total(crm.tarefas.atrasadas, crm.tarefas.atrasadas_total) : null,
     leads_em_aberto: crm ? crm.comercial.em_aberto : null,
     pendencias: input.pendencias.length,
+    lembretes_hoje: input.lembretes?.length ?? 0,
+    clima: input.clima ? { cidade: input.clima.cidade.replace(/\s*\(.*\)$/, ""), temperatura: input.clima.agora.temperatura } : null,
   };
   return { saudacao: hello, abertura, cards, fechamento, atencao, numeros };
 }
 
-export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typeof fetch, now?: Date): Promise<Briefing> {
-  let crm: CrmBriefing | null = null;
+/** Fim do dia de hoje (no fuso do dono), para filtrar os lembretes. */
+const endOfToday = (now: Date, timeZone: string) => {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone }).format(now);
+  const until = (r: Reminder) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(r.quando)) <= today;
+  return until;
+};
+
+export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typeof fetch, now = new Date(), skills?: Skills): Promise<Briefing> {
   let crmError: string | null = null;
-  if (config.ampliize) {
-    try {
-      crm = (await callResource({ ...config.ampliize, fetchImpl, timeoutMs: 15_000 }, "briefing")) as CrmBriefing;
-    } catch (err) {
-      crmError = err instanceof ResourceApiError ? err.message : "falha na consulta";
-    }
-  }
-  const [pendencias, inbox] = await Promise.all([brain.pendencias(), brain.inboxCount()]);
+  // CRM, clima e lembretes em paralelo; clima fora do ar não derruba o briefing.
+  const [crm, clima, lembretes, pendencias, inbox] = await Promise.all([
+    config.ampliize
+      ? (callResource({ ...config.ampliize, fetchImpl, timeoutMs: 15_000 }, "briefing") as Promise<CrmBriefing>).catch((err) => {
+          crmError = err instanceof ResourceApiError ? err.message : "falha na consulta";
+          return null;
+        })
+      : Promise.resolve(null),
+    skills ? skills.weather.get(skills.city).catch(() => null) : Promise.resolve(null),
+    skills ? skills.reminders.open().then((list) => list.filter(endOfToday(now, config.timeZone))) : Promise.resolve([]),
+    brain.pendencias(),
+    brain.inboxCount(),
+  ]);
   return buildBriefing({
     crm,
     crmError,
     crmConfigured: !!config.ampliize,
     pendencias,
     inbox,
+    clima,
+    lembretes,
     ownerName: config.ownerName,
     timeZone: config.timeZone,
     now,

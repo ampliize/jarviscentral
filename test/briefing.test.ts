@@ -138,7 +138,7 @@ test("briefing: usa os totais do CRM quando as listas vêm cortadas", () => {
   assert.equal(b.cards[1]!.destaque!.valor, "30");
   assert.match(b.cards[1]!.fala, /30 tarefas atrasadas: .*e mais 29\./);
   assert.equal(b.atencao, 35);
-  assert.deepEqual(b.numeros, { recebido_no_mes: 12880, vencidas: 5, tarefas_atrasadas: 30, leads_em_aberto: 89, pendencias: 45 });
+  assert.deepEqual(b.numeros, { recebido_no_mes: 12880, vencidas: 5, tarefas_atrasadas: 30, leads_em_aberto: 89, pendencias: 45, lembretes_hoje: 0, clima: null });
   const brainCard = b.cards.find((c) => c.id === "cerebro")!;
   assert.match(brainCard.fala, /45 pendências abertas\. As primeiras: item 0 e item 1\./);
   assert.equal(brainCard.itens.length, 6);

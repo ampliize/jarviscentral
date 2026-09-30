@@ -223,12 +223,14 @@
 <div id="hud" hidden>
   <div class="card">
     <div class="rotulo">GERENCIAR HUD</div>
+    <label class="opt" id="wakeOpt" title="Diga “Jarvis” e a pergunta, com esta aba aberta (Chrome ou Edge)">Chamar por “Jarvis” <input type="checkbox" id="wakeToggle"></label>
     <label class="opt">Falar as respostas <input type="checkbox" id="speakToggle"></label>
     <label class="opt" title="Bata duas palmas para ele começar a ouvir (com esta aba aberta)">Modo palmas <input type="checkbox" id="clapToggle"></label>
     <label class="opt" title="Para a direita, precisa bater mais forte">Sensibilidade da palma <input type="range" id="clapThresh" min="0.15" max="0.9" step="0.05"></label>
     <div class="actions">
       <button class="btn" type="button" id="cfg">Configuração</button>
       <button class="btn" type="button" id="nova">Nova conversa</button>
+      <button class="btn" type="button" id="skillsBtn">Habilidades</button>
       <button class="btn" type="button" id="sair">Sair</button>
     </div>
   </div>
@@ -262,10 +264,17 @@
   let conversationId = sessionStorage.getItem('jarvis_conversation') || null;
 
   // ================= estado =================
-  const LABELS = { idle: 'EM ESPERA', listening: 'OUVINDO', transcribing: 'TRANSCREVENDO', thinking: 'PENSANDO', speaking: 'FALANDO', clap: 'AGUARDANDO PALMAS', error: 'ATENÇÃO' };
+  const LABELS = { idle: 'EM ESPERA', wake: 'DIGA “JARVIS”', listening: 'OUVINDO', transcribing: 'TRANSCREVENDO', thinking: 'PENSANDO', speaking: 'FALANDO', clap: 'AGUARDANDO PALMAS', error: 'ATENÇÃO' };
   let mode = 'idle';
-  const setMode = (m) => { mode = m; $('stateLabel').textContent = LABELS[m] || m.toUpperCase(); document.body.dataset.mode = m; };
-  const restMode = () => setMode(clapToggle.checked ? 'clap' : 'idle');
+  const setMode = (m) => {
+    mode = m;
+    $('stateLabel').textContent = LABELS[m] || m.toUpperCase();
+    document.body.dataset.mode = m;
+    // O reconhecimento do "Jarvis" fica pausado enquanto ele fala ou pensa (não ouve a própria voz).
+    if (m === 'speaking' || m === 'thinking' || m === 'transcribing') pauseWake();
+    else if (m !== 'listening') resumeWake();
+  };
+  const restMode = () => setMode(wakeActive() ? 'wake' : clapToggle.checked ? 'clap' : 'idle');
   // Pedido de rede em andamento (chat, briefing, transcrição): mic e envio ficam travados.
   let busy = false;
   const setBusy = (b) => { busy = b; send.disabled = b; mic.disabled = b; };
@@ -338,6 +347,11 @@
         });
         card.append(ol);
       }
+    }
+    if (c.botoes?.length) {
+      const row = el('div', 'actions');
+      for (const b of c.botoes) { const bt = el('button', 'btn', b.texto); bt.type = 'button'; bt.onclick = b.fn; row.append(bt); }
+      card.append(row);
     }
     if (c.rodape) card.append(el('footer', 'rodape', c.rodape));
     return card;
@@ -443,41 +457,76 @@
     return { promise, abort: () => ctrl.abort() };
   };
 
-  /** Fala o texto com legenda sincronizada. Resolve false se foi interrompido. */
+  /** Agrupa as frases em pedaços para a voz: o primeiro é curto para começar a falar logo. */
+  const chunksOf = (parts) => {
+    const out = [];
+    let cur = '';
+    for (const p of parts) {
+      const max = out.length ? 420 : 140;
+      if (cur && (cur + ' ' + p).length > max) { out.push(cur); cur = p; } else cur = cur ? cur + ' ' + p : p;
+    }
+    if (cur) out.push(cur);
+    return out;
+  };
+  const firstChunk = (text) => chunksOf(sentences(text))[0] || '';
+  window.__jarvis = { ...(window.__jarvis || {}), chunksOf, sentences };
+
+  /** Toca um pedaço de áudio com a legenda acompanhando as frases dele. */
+  async function playBlob(blob, parts) {
+    ensureOut();
+    if (outCtx && outCtx.state === 'suspended') await outCtx.resume().catch(() => {});
+    const url = URL.createObjectURL(blob);
+    const total = parts.join(' ').length;
+    player.src = url;
+    subtitle(parts[0]);
+    player.ontimeupdate = () => {
+      if (!player.duration || !isFinite(player.duration)) return;
+      const pos = (player.currentTime / player.duration) * total;
+      let acc = 0;
+      for (const s of parts) { acc += s.length + 1; if (pos <= acc) { if ($('subs').textContent !== s) subtitle(s); break; } }
+    };
+    const played = await new Promise((resolve) => {
+      endCurrent = resolve;
+      player.onended = () => resolve(true);
+      player.onerror = () => resolve(false);
+      player.play().catch(() => resolve(false));
+    });
+    endCurrent = null;
+    player.ontimeupdate = null;
+    URL.revokeObjectURL(url);
+    return played;
+  }
+
+  /**
+   * Fala o texto com legenda sincronizada. A voz é pedida em pedaços: o
+   * primeiro começa a tocar enquanto o próximo já está sendo gerado.
+   * Resolve false se foi interrompido.
+   */
   async function say(text, { pre, force } = {}) {
     const my = ++speakSeq;
     const parts = sentences(text);
-    if (!parts.length) return true;
+    if (!parts.length) { pre?.abort(); return true; }
     const voice = speakToggle.checked || !!force;
     setMode('speaking');
     subtitle(parts[0]);
-    const blob = await (pre || fetchTts(text, force)).promise;
-    if (my !== speakSeq) return false;
-    if (blob) {
-      ensureOut();
-      if (outCtx && outCtx.state === 'suspended') await outCtx.resume().catch(() => {});
-      const url = URL.createObjectURL(blob);
-      const total = parts.join(' ').length;
-      player.src = url;
-      player.ontimeupdate = () => {
-        if (!player.duration || !isFinite(player.duration)) return;
-        const pos = (player.currentTime / player.duration) * total;
-        let acc = 0;
-        for (const s of parts) { acc += s.length + 1; if (pos <= acc) { if ($('subs').textContent !== s) subtitle(s); break; } }
-      };
-      const played = await new Promise((resolve) => {
-        endCurrent = resolve;
-        player.onended = () => resolve(true);
-        player.onerror = () => resolve(false);
-        player.play().catch(() => resolve(false));
-      });
-      endCurrent = null;
-      player.ontimeupdate = null;
-      URL.revokeObjectURL(url);
-      if (my !== speakSeq) return false;
-      if (played) return true;
+    const chunks = chunksOf(parts);
+    const tts = [pre || fetchTts(chunks[0], force)];
+    const abortRest = (from) => tts.slice(from).forEach((t) => t?.abort());
+    let spoken = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      if (i + 1 < chunks.length) tts[i + 1] = fetchTts(chunks[i + 1], force);
+      const blob = await tts[i].promise;
+      if (my !== speakSeq) { abortRest(i + 1); return false; }
+      if (!blob) { abortRest(i + 1); break; }
+      const chunkParts = sentences(chunks[i]);
+      const played = await playBlob(blob, chunkParts);
+      if (my !== speakSeq) { abortRest(i + 1); return false; }
+      if (!played) { abortRest(i + 1); break; }
+      spoken += chunkParts.length;
     }
+    if (spoken >= parts.length) return true;
     // Sem a voz da OpenAI (ou sem permissão para tocar): voz do aparelho, ou só a legenda.
+    const rest = parts.slice(spoken);
     return new Promise((resolve) => {
       let done = false;
       const finish = (ok) => { if (done) return; done = true; fakeSpeech = false; endCurrent = null; resolve(ok); };
@@ -487,8 +536,8 @@
       const next = () => {
         if (done) return;
         if (my !== speakSeq) return finish(false);
-        if (i >= parts.length) return finish(true);
-        const s = parts[i++];
+        if (i >= rest.length) return finish(true);
+        const s = rest[i++];
         subtitle(s);
         if (voice && 'speechSynthesis' in window) {
           try {
@@ -533,9 +582,9 @@
       if (my !== speakSeq) return;
       fillPulse(data);
       const texts = [data.abertura, ...data.cards.map((c) => c.fala), data.fechamento];
-      let current = fetchTts(texts[0], force);
+      let current = fetchTts(firstChunk(texts[0]), force);
       for (let i = 0; i < texts.length; i++) {
-        pending = i + 1 < texts.length ? fetchTts(texts[i + 1], force) : null;
+        pending = i + 1 < texts.length ? fetchTts(firstChunk(texts[i + 1]), force) : null;
         const card = data.cards[i - 1];
         if (card) showCard(card);
         const ok = await say(texts[i], { pre: current, force });
@@ -567,6 +616,8 @@
     if (n.tarefas_atrasadas != null) rows.push({ label: 'Tarefas atrasadas', valor: String(n.tarefas_atrasadas), alerta: n.tarefas_atrasadas > 0 });
     if (n.leads_em_aberto != null) rows.push({ label: 'Leads em aberto', valor: String(n.leads_em_aberto) });
     if (n.pendencias) rows.push({ label: 'Pendências', valor: String(n.pendencias) });
+    if (n.lembretes_hoje) rows.push({ label: 'Lembretes hoje', valor: String(n.lembretes_hoje) });
+    if (n.clima) rows.unshift({ label: n.clima.cidade, valor: n.clima.temperatura + '°' });
     if (!rows.length) return;
     $('pulse').replaceChildren(...rows.map((r) => {
       const d = el('div', 'pulse-row' + (r.alerta ? ' alerta' : ''));
@@ -662,7 +713,10 @@
     dockItems.length = 0; renderDock(); focusData = null; $('focus').hidden = true; holoLayout = 'center';
     subtitle('Nova conversa iniciada.', 2500); restMode();
   };
-  $('sair').onclick = () => { toggleHud(false); stopSpeaking(); token = ''; store.del('jarvis_token'); showLogin(); };
+  $('sair').onclick = () => {
+    toggleHud(false); stopSpeaking(); disarmWake(); pauseWake();
+    token = ''; store.del('jarvis_token'); showLogin();
+  };
   speakToggle.onchange = () => { store.set('jarvis_speak', speakToggle.checked ? '1' : '0'); if (!speakToggle.checked) { try { speechSynthesis.cancel(); } catch {} } };
   clapThresh.oninput = () => store.set('jarvis_clap_thresh', clapThresh.value);
   document.addEventListener('keydown', (e) => {
@@ -695,15 +749,23 @@
     for (let i = 0; i < micBuf.length; i++) { const v = micBuf[i]; sum += v * v; const a = Math.abs(v); if (a > peak) peak = a; }
     return { rms: Math.sqrt(sum / micBuf.length), peak };
   };
+  // Bip num contexto de áudio só dele: não prende o player da voz a um contexto
+  // criado fora de um gesto do usuário (no Safari ele ficaria mudo).
+  let beepCtx = null;
   const beep = (freq = 880, ms = 120) => {
     try {
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      beepCtx = beepCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (beepCtx.state === 'suspended') beepCtx.resume().catch(() => {});
+      const ctx = beepCtx;
+      const o = ctx.createOscillator(), g = ctx.createGain();
       o.frequency.value = freq; g.gain.value = 0.06;
-      o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + ms / 1000);
+      o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + ms / 1000);
     } catch {}
   };
   const startRecording = async () => {
     if (recording || busy) return;
+    disarmWake();
+    pauseWake();
     stopSpeaking();
     ensureOut(); // aproveita o gesto do usuário para liberar o áudio da resposta
     try { await ensureMic(); } catch (err) { showError(err.message || 'Não consegui acessar o microfone. Libere a permissão no navegador.'); return; }
@@ -752,6 +814,155 @@
   };
   mic.onclick = () => (recording ? recorder.stop() : startRecording());
 
+  // ================= chamar por "Jarvis" =================
+  // Reconhecimento de voz do navegador (Chrome/Edge), contínuo e em português.
+  // "Jarvis, como está a operação?" vai direto; "Jarvis" sozinho abre 8 s para a pergunta.
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const wakeToggle = $('wakeToggle');
+  // Desligado até você ligar: com ele ativo, o navegador escuta o ambiente o tempo todo.
+  wakeToggle.checked = !!SR && store.get('jarvis_wake', '0') === '1';
+  if (!SR) { wakeToggle.disabled = true; $('wakeOpt').title = 'Seu navegador não reconhece voz contínua. Use Chrome ou Edge.'; }
+  const WAKE_RE = /^(jarvis|jarves|jarvi|jarviz|jarvas|javis|jervis|djarvis|jarbas|jarvs)$/;
+  let rec = null, wakePaused = false, wakeBlocked = false, wakeHinted = false, armed = false, armTimer = null, wakeErrors = [], lastSpeechEnd = 0;
+  const wakeActive = () => !!SR && wakeToggle.checked;
+  const wordNorm = (w) => w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+  /** Separa "... Jarvis, <pergunta>" em { chamou, pergunta }. */
+  const splitWake = (text) => {
+    const words = text.trim().split(/\s+/);
+    const i = words.findIndex((w) => WAKE_RE.test(wordNorm(w)));
+    if (i < 0) return { chamou: false, pergunta: text.trim() };
+    return { chamou: true, pergunta: words.slice(i + 1).join(' ').replace(/^[,.!?\s]+/, '').trim() };
+  };
+  window.__jarvis = { ...(window.__jarvis || {}), splitWake };
+  function disarmWake() { armed = false; clearTimeout(armTimer); }
+  function armWake() {
+    armed = true;
+    beep(880);
+    setMode('listening');
+    subtitle('Pode falar…');
+    clearTimeout(armTimer);
+    armTimer = setTimeout(() => { if (armed) { disarmWake(); subtitle(''); restMode(); } }, 8000);
+  }
+  function handleCommand(text) {
+    disarmWake();
+    beep(660, 90);
+    askJarvis(text, { spoken: true });
+  }
+  function startWake() {
+    if (!wakeActive() || wakePaused || wakeBlocked || rec || !token || document.hidden) return;
+    try {
+      rec = new SR();
+      rec.lang = 'pt-BR';
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.onresult = (e) => {
+        if (busy || recording || mode === 'speaking' || Date.now() - lastSpeechEnd < 700) return;
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const r = e.results[i];
+          const text = r[0].transcript || '';
+          const { chamou, pergunta } = splitWake(text);
+          if (!armed && chamou) armWake();
+          if (!armed) continue;
+          if (r.isFinal) {
+            const cmd = chamou ? pergunta : text.trim();
+            if (cmd.replace(/[^\p{L}\p{N}]/gu, '').length >= 2) return handleCommand(cmd);
+          } else if (pergunta || !chamou) {
+            subtitle('Você: ' + (chamou ? pergunta : text.trim()));
+          }
+        }
+      };
+      rec.onerror = (e) => {
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          // Sem permissão agora: espera um toque na página para tentar de novo (a opção continua ligada).
+          if (!wakeHinted) subtitle('Para chamar por “Jarvis”, libere o microfone no cadeado da barra de endereço.', 6000);
+          wakeHinted = true;
+          wakeBlocked = true;
+        }
+        if (e.error === 'network' || e.error === 'audio-capture') wakeErrors.push(Date.now());
+      };
+      rec.onend = () => {
+        rec = null;
+        wakeErrors = wakeErrors.filter((t) => Date.now() - t < 60_000);
+        // Reinicia sozinho (o navegador encerra o reconhecimento de tempos em tempos).
+        if (wakeActive() && !wakePaused) setTimeout(startWake, wakeErrors.length > 4 ? 10_000 : 250);
+      };
+      rec.start();
+    } catch {
+      rec = null;
+    }
+  }
+  function pauseWake() { wakePaused = true; if (rec) { try { rec.abort(); } catch {} } }
+  function resumeWake() {
+    if (!wakePaused) return startWake();
+    wakePaused = false;
+    lastSpeechEnd = Date.now();
+    setTimeout(startWake, 300);
+  }
+  wakeToggle.onchange = () => {
+    store.set('jarvis_wake', wakeToggle.checked ? '1' : '0');
+    if (wakeToggle.checked) { wakePaused = false; startWake(); } else { disarmWake(); pauseWake(); wakePaused = false; }
+    if (!busy && mode !== 'speaking') restMode();
+  };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) startWake(); });
+  // Alguns navegadores só liberam o reconhecimento depois de um toque na página.
+  // Se a permissão foi negada de vez, não insiste a cada clique.
+  document.addEventListener('pointerdown', async () => {
+    if (wakeBlocked) {
+      const state = await navigator.permissions?.query({ name: 'microphone' }).then((p) => p.state).catch(() => 'prompt');
+      if (state === 'denied') return;
+      wakeBlocked = false;
+    }
+    startWake();
+  });
+
+  // ================= lembretes =================
+  const hourOf = (iso) => new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+  async function concluirLembrete(id) {
+    try {
+      const r = await api('/api/lembretes/' + encodeURIComponent(id) + '/concluir', { method: 'POST' });
+      subtitle(r.ok ? 'Lembrete concluído.' : 'Não consegui concluir o lembrete.', 2500);
+      briefCache = null;
+    } catch {}
+  }
+  // Cada tela guarda até onde já avisou (no primeiro acesso, pega as últimas 12 h).
+  const resting = () => !busy && !recording && !armed && ['idle', 'wake', 'clap', 'error'].includes(mode);
+  let checkingReminders = false;
+  async function checkReminders() {
+    if (!token || checkingReminders) return;
+    checkingReminders = true;
+    try {
+      const since = store.get('jarvis_lembretes_desde', new Date(Date.now() - 12 * 3600_000).toISOString());
+      const r = await api('/api/lembretes/avisos?desde=' + encodeURIComponent(since));
+      if (!r.ok) return;
+      const { avisos = [], agora } = await r.json();
+      if (agora) store.set('jarvis_lembretes_desde', agora);
+      if (avisos.length) briefCache = null;
+      for (const l of avisos) {
+        const card = { rotulo: 'AGENDA · LEMBRETE', titulo: l.texto, destaque: { valor: hourOf(l.quando), legenda: 'lembrete' }, botoes: [{ texto: 'Concluído', fn: () => concluirLembrete(l.id) }] };
+        showCard(card);
+        beep(988, 160);
+        // Não atropela uma resposta, uma pergunta nem uma escuta em andamento: aí fica só o card e o bip.
+        if (resting() && (await say('Lembrete: ' + l.texto + '.'))) { subtitle(''); restMode(); }
+      }
+    } catch {} finally { checkingReminders = false; }
+  }
+  setInterval(checkReminders, 30_000);
+
+  // ================= habilidades =================
+  const SKILLS = [
+    ['Bom dia', '“bom dia” ou botão BRIEFING: clima, dinheiro, entregas, comercial, lembretes e pendências'],
+    ['Chamar por voz', '“Jarvis, como está a operação?” (ou só “Jarvis” e depois a pergunta)'],
+    ['CRM da Ampliize', 'clientes, financeiro, projetos, funil, erros e melhorias'],
+    ['Lembretes', '“me lembra de cobrar a Ruddar amanhã às 9h” · “quais meus lembretes?”'],
+    ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
+    ['Notícias', '“notícias de marketing digital” · “o que saiu sobre Aracaju?”'],
+    ['Cérebro (Obsidian)', '“o que eu anotei sobre a Souza Gneri?” · “anota que …”'],
+  ];
+  $('skillsBtn').onclick = () => {
+    toggleHud(false);
+    showCard({ rotulo: 'JARVIS · HABILIDADES', titulo: 'O que eu sei fazer', itens: SKILLS.map(([titulo, detalhe]) => ({ titulo, detalhe })) });
+  };
+
   // ================= modo palmas =================
   /** Duas palmas: dois picos entre 150 ms e 900 ms de distância. */
   const isDoubleClap = (times) => {
@@ -759,7 +970,7 @@
     const gap = times[times.length - 1] - times[times.length - 2];
     return gap >= 150 && gap <= 900;
   };
-  window.__jarvis = { isDoubleClap };
+  window.__jarvis = { ...(window.__jarvis || {}), isDoubleClap };
   let clapLoop = null;
   const startClapMode = async () => {
     try { await ensureMic(); } catch (err) { clapToggle.checked = false; showError(err.message); return; }
@@ -851,7 +1062,7 @@
     const dust = Array.from({ length: 34 }, () => ({ x: Math.random() * 2 - 1, y: Math.random(), v: 0.15 + Math.random() * 0.35, s: Math.random() }));
     const lay = { cy: 0.43, h: 0.3 };
     let ampS = 0;
-    const HUE = { idle: 200, clap: 198, listening: 165, transcribing: 208, thinking: 208, speaking: 192, error: 30 };
+    const HUE = { idle: 200, wake: 196, clap: 198, listening: 165, transcribing: 208, thinking: 208, speaking: 192, error: 30 };
 
     function rings(t, amp, cx, cy, R, hue, speed) {
       ctx.save();
@@ -996,7 +1207,22 @@
   })();
 
   // ================= início =================
+  /** Convite (uma vez) para ligar o "Chamar por Jarvis"; o clique em Ativar libera o microfone. */
+  function offerWake() {
+    if (!SR || wakeToggle.checked || store.get('jarvis_wake_oferecido', '') === '1') return;
+    store.set('jarvis_wake_oferecido', '1');
+    showCard({
+      rotulo: 'JARVIS · VOZ',
+      titulo: 'Quer me chamar pelo nome?',
+      texto: 'Com isto ligado, é só dizer “Jarvis” e a pergunta, com esta aba aberta. O navegador fica ouvindo o ambiente enquanto a opção estiver ligada. Dá para desligar em GERENCIAR HUD.',
+      botoes: [{ texto: 'Ativar', fn: () => { wakeToggle.checked = true; wakeToggle.onchange(); closeFocus(); subtitle('Pronto. Diga “Jarvis” e a pergunta.', 4000); } }],
+    });
+  }
   function afterLogin() {
+    wakePaused = false;
+    startWake();
+    checkReminders();
+    offerWake();
     subtitle('Diga “bom dia” ou toque no microfone.', 5000);
     showSetup(true);
     // Preenche o painel lateral sem falar nada.
