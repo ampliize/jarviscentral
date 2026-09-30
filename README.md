@@ -42,36 +42,70 @@ Regras de segurança do assistente: fatos só vêm das ferramentas (nada
 inventado), resultados de ferramentas são tratados como dados e não como
 instruções, e ele não altera nada nos projetos (só lê).
 
-## Rodar no Easypanel
+## Rodar no Easypanel (uns 15 minutos)
 
-1. **Chave do CRM**: no CRM da Ampliize, entre como proprietário → aba
-   **Monitor** → **Chaves de API** → nome "Jarvis" → **Gerar chave**. Copie a
-   chave (ela aparece uma única vez).
-2. **Senha do Jarvis**: gere uma senha longa, por exemplo com
-   `openssl rand -hex 24`, ou use um gerador de senhas com 40+ caracteres.
-3. No Easypanel: **Create → App** (no projeto que preferir) → nome `jarvis`.
-4. **Source → GitHub**: repositório `ampliize/jarviscentral`, branch `main`.
-   **Build → Dockerfile** (caminho `Dockerfile`).
-5. **Environment** — cole e preencha:
+Você só precisa de 3 coisas prontas: **um token do GitHub**, **a chave do
+CRM** e **a sua chave da OpenAI**. O resto o Jarvis configura sozinho.
+
+### 1. GitHub (uma vez)
+1. Crie o repositório do cérebro: github.com/new → dono `ampliize` → nome
+   **`ampliize-brain`** → **Private** → sem README → Create.
+2. Crie **um** token que serve para tudo: GitHub → Settings → Developer
+   settings → *Fine-grained tokens* → *Generate new token* →
+   - Resource owner: `ampliize` · Expiration: 1 ano
+   - Repository access: *Only select repositories* → **`jarviscentral`** e
+     **`ampliize-brain`**
+   - Permissions → Repository → **Contents: Read and write**
+   - Gerar e copiar (começa com `github_pat_`).
+
+### 2. CRM
+Monitor → **Chaves de API** → nome `Jarvis` → **Gerar chave** → copiar.
+
+### 3. Easypanel
+1. **Settings → GitHub**: cole o token do passo 1 (é assim que o Easypanel
+   lê o repositório privado).
+2. **Create project** → nome `jarvis`.
+3. No projeto: **+ Service → App** → nome `jarvis`.
+4. **Source → GitHub**: Owner `ampliize` · Repository `jarviscentral` ·
+   Branch `main` · Build path `/` → Save.
+5. **Build → Dockerfile** (arquivo `Dockerfile`) → Save.
+6. **Environment** → cole, trocando os `<...>`, e Save:
    ```
-   JARVIS_ACCESS_TOKEN=<senha do passo 2>
-   OPENAI_API_KEY=<sua chave da OpenAI>
-   OPENAI_MODEL=gpt-4.1
+   OPENAI_API_KEY=<sua chave sk-...>
    AMPLIIZE_API_URL=https://eiqkinagduvfbiayiqtr.supabase.co/functions/v1/integration-api
-   AMPLIIZE_API_KEY=<chave do passo 1>
+   AMPLIIZE_API_KEY=<chave do CRM, passo 2>
+   BRAIN_GIT_URL=https://github.com/ampliize/ampliize-brain.git
+   BRAIN_GIT_TOKEN=<token do GitHub, passo 1>
    JARVIS_OWNER_NAME=Davy
    ```
-6. **Mounts → Volume**: nome `jarvis-data`, caminho **`/data`**. Sem isso a
-   memória e o histórico somem a cada deploy.
-7. **Domains**: adicione um domínio (ex.: `jarvis.ampliize.com`) apontando
-   para a porta **3000** com HTTPS ligado. No seu DNS, crie o registro `A`
-   (ou `CNAME`) desse subdomínio para o IP da VPS.
-8. **Deploy**. Em **Logs** deve aparecer `Jarvis no ar na porta 3000 ...
-   conectores: ampliize, memoria`. Abra o domínio, digite a senha e pergunte:
-   *"Como está a operação hoje?"*.
+7. **Mounts → Add Volume**: Name `data` · Mount path **`/data`** → Save.
+8. **Domains**: o Easypanel já cria um endereço com HTTPS
+   (`...easypanel.host`). Confira se aponta para a **porta 3000**. Se quiser
+   um domínio próprio (ex.: `jarvis.ampliize.com`), adicione aqui e crie o
+   registro `A` no DNS apontando para o IP da VPS.
+9. **Deploy**. Abra **Logs**: vai aparecer a **SENHA DE ACESSO DO JARVIS**
+   (só no primeiro start). Guarde num gerenciador de senhas.
+10. Abra o domínio, digite a senha. A tela **configuração** mostra ✅/⚠️
+    para OpenAI, CRM e Obsidian. Com tudo ✅, pergunte: *"Como está a
+    operação hoje?"*
 
-Para atualizar: cada push na `main` → **Deploy** no Easypanel (ou ligue o
-auto-deploy do GitHub no próprio app).
+Atualizações: cada push na `main` → **Deploy** (ou ligue o *Auto Deploy*).
+
+### 4. Obsidian no seu computador (depois que o Jarvis subiu)
+O Jarvis já criou a estrutura no `ampliize-brain`. Agora ligue o seu Obsidian:
+1. Instale o **Git** para Windows (git-scm.com → Download → next, next) e o
+   **GitHub Desktop** (desktop.github.com), entrando com a conta `ampliize`.
+2. GitHub Desktop → *File → Clone repository* → `ampliize/ampliize-brain` →
+   escolha uma pasta (ex.: `Documentos\ampliize-brain`).
+3. Obsidian → *Open folder as vault* → essa pasta.
+4. Obsidian → Settings → Community plugins → *Turn on* → Browse → **Git**
+   (de Vinzent) → Install → Enable. Nas opções do plugin:
+   *Auto commit-and-sync interval* = **5** · *Auto pull interval* = **5** ·
+   *Pull on startup* = **ligado**.
+5. Abra **`_jarvis/contexto.md`** e escreva quem você é, suas prioridades e
+   como quer as respostas. Em até 5 minutos o Jarvis passa a usar.
+
+No Mac é igual (Git já vem com o Xcode Command Line Tools).
 
 ## Voz
 
@@ -91,39 +125,20 @@ conversa. Se a voz da OpenAI falhar, a interface usa a voz do próprio aparelho.
 
 ## Cérebro no Obsidian (memória blindada)
 
-O Jarvis e o seu Obsidian usam o **mesmo vault**, guardado num repositório
-Git privado. Tudo são arquivos `.md`: você lê, edita e tem histórico de tudo.
+O Jarvis e o seu Obsidian usam o **mesmo vault**, guardado no repositório Git
+privado `ampliize-brain` (configuração nos passos 1 e 4 acima). Tudo são
+arquivos `.md`, com histórico de cada mudança.
 
-1. **Crie o repositório** vazio e privado no GitHub: `ampliize/ampliize-brain`
-   (sem README).
-2. **Crie um token** só para ele: GitHub → Settings → Developer settings →
-   *Fine-grained tokens* → *Generate new token* → Repository access: *Only
-   select repositories* → `ampliize-brain` → Permissions → **Contents: Read
-   and write** → gerar e copiar.
-3. **No Easypanel** (Environment do Jarvis):
-   ```
-   BRAIN_GIT_URL=https://github.com/ampliize/ampliize-brain.git
-   BRAIN_GIT_TOKEN=<token do passo 2>
-   ```
-   Deploy. No primeiro start o Jarvis cria a estrutura do vault
-   (`clientes/`, `decisoes/`, `processos/`, `reunioes/`, `inbox/`,
-   `_jarvis/contexto.md`) e envia para o repositório. Notas que ele já tinha
-   gravado antes vão junto para a `inbox/`.
-4. **No computador**: clone o repositório (GitHub Desktop → *Clone* →
-   `ampliize-brain`) e, no Obsidian, *Open folder as vault* nessa pasta.
-5. **Plugin Git no Obsidian**: Settings → Community plugins → procure **Git**
-   (de Vinzent) → instale e ative → nas opções: *Pull on startup* ligado,
-   *Auto pull interval* = 5 e *Auto commit-and-sync interval* = 5.
-6. **Celular**: no Android o mesmo plugin funciona. No iPhone, use o app
-   *Working Copy* para clonar o repositório e abra a pasta no Obsidian.
-7. Escreva em **`_jarvis/contexto.md`** quem você é, suas prioridades e como
-   gosta das respostas. Vai em toda conversa.
+- `clientes/`, `decisoes/`, `processos/`, `reunioes/`: você escreve, o Jarvis lê
+  e cita a nota quando usa.
+- `inbox/`: quando você diz "anota que...", o Jarvis grava aqui e envia na
+  hora. Revise e mova para a pasta certa.
+- `_jarvis/contexto.md`: vai em toda conversa.
 
-Como ele usa: busca nas notas quando a pergunta pede contexto
-(`memoria_buscar`), cita a nota usada e, quando você pede "anota que...",
-grava em `inbox/` e envia na hora. O Jarvis puxa o que você escreveu a cada
-5 minutos (`BRAIN_SYNC_MINUTES`) e pode ser forçado em `POST /api/brain/sync`.
-Ele nunca apaga nem reescreve notas suas.
+O Jarvis puxa o que você escreveu a cada 5 minutos (`BRAIN_SYNC_MINUTES`) e
+nunca apaga nem reescreve notas suas. Se o primeiro clone falhar (ex.: token
+errado), ele guarda as notas no servidor e tenta de novo a cada ciclo.
+No celular: Android usa o mesmo plugin Git; no iPhone, o app *Working Copy*.
 
 ## Modelo local (opcional)
 

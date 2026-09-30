@@ -47,7 +47,8 @@ const config = async () =>
 
 test("config exige token forte e valida projetos", () => {
   assert.throws(() => loadConfig({ JARVIS_ACCESS_TOKEN: "curto", OPENAI_API_KEY: "x" }), /24 caracteres/);
-  assert.throws(() => loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN }), /OPENAI_API_KEY/);
+  // Sem chave da OpenAI o Jarvis sobe (e avisa na tela), em vez de reiniciar em loop.
+  assert.equal(loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN }).openaiApiKey, "");
   assert.throws(
     () => loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN, OPENAI_API_KEY: "x", JARVIS_PROJECTS: '[{"id":"X!","url":"http://a","key":"k"}]' }),
     /id inválido/,
