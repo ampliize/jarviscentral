@@ -15,9 +15,14 @@ import { MAX_AUDIO_BYTES, audioExtension, speak, transcribe } from "./voice.js";
 import { ensureAccessToken } from "./setup.js";
 import { callResource } from "./connectors/resourceApi.js";
 import { loadBriefing } from "./briefing.js";
+import type { Skills } from "./skills/index.js";
+import { NewsService } from "./skills/news.js";
+import { ReminderStore } from "./skills/reminders.js";
+import { WeatherService } from "./skills/weather.js";
 
 const MAX_QUESTION_CHARS = 4_000;
-const RATE_LIMIT_PER_MINUTE = 30;
+const RATE_LIMIT_PER_MINUTE = 120;
+const FAILED_AUTH_PER_MINUTE = 10;
 
 /** Comparação de token em tempo constante (hash antes para igualar tamanhos). */
 const sameToken = (a: string, b: string) =>
@@ -49,7 +54,14 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
   const store = new ConversationStore(config.dataDir);
   await Promise.all([brain.init(), store.init()]);
   const access = await ensureAccessToken(config.dataDir, config.accessToken);
-  const connectors = buildConnectors(config, brain, fetchImpl);
+  const skills: Skills = {
+    reminders: new ReminderStore(config.dataDir),
+    weather: new WeatherService(fetchImpl),
+    news: new NewsService(fetchImpl),
+    city: config.city,
+    timeZone: config.timeZone,
+  };
+  const connectors = buildConnectors(config, brain, fetchImpl, skills);
 
   // Cérebro no Obsidian: clona/sincroniza em segundo plano para não travar a subida.
   if (config.brainGit) {
@@ -75,19 +87,33 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
   app.get("/health", (c) => c.json({ ok: true, conectores: connectors.map((k) => k.id) }));
 
   // Autenticação simples de dono único: Bearer JARVIS_ACCESS_TOKEN.
+  // Dois limites por IP: tentativas de senha errada (contra força bruta) e uso
+  // normal (a voz em pedaços e os avisos de lembrete fazem várias chamadas).
   const hits = new Map<string, { count: number; resetAt: number }>();
+  const failures = new Map<string, { count: number; resetAt: number }>();
+  const over = (map: typeof hits, ip: string, limit: number, now: number) => {
+    if (map.size > 5_000) for (const [k, v] of map) if (v.resetAt < now) map.delete(k);
+    const bucket = map.get(ip);
+    if (!bucket || bucket.resetAt < now) {
+      map.set(ip, { count: 1, resetAt: now + 60_000 });
+      return false;
+    }
+    return ++bucket.count > limit;
+  };
   app.use("/api/*", async (c, next) => {
     if (c.req.method === "OPTIONS") return next();
     const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "local";
     const now = Date.now();
-    if (hits.size > 5_000) for (const [k, v] of hits) if (v.resetAt < now) hits.delete(k);
-    const bucket = hits.get(ip);
-    if (!bucket || bucket.resetAt < now) hits.set(ip, { count: 1, resetAt: now + 60_000 });
-    else if (++bucket.count > RATE_LIMIT_PER_MINUTE) return c.json({ error: "Muitas requisições. Aguarde um minuto." }, 429);
+    const tooManyFailures = (failures.get(ip)?.resetAt ?? 0) >= now && (failures.get(ip)?.count ?? 0) >= FAILED_AUTH_PER_MINUTE;
+    if (tooManyFailures) return c.json({ error: "Muitas tentativas. Aguarde um minuto." }, 429);
 
     const header = c.req.header("authorization") ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-    if (!token || !sameToken(token, access.token)) return c.json({ error: "Não autorizado." }, 401);
+    if (!token || !sameToken(token, access.token)) {
+      over(failures, ip, FAILED_AUTH_PER_MINUTE, now);
+      return c.json({ error: "Não autorizado." }, 401);
+    }
+    if (over(hits, ip, RATE_LIMIT_PER_MINUTE, now)) return c.json({ error: "Muitas requisições. Aguarde um minuto." }, 429);
     return next();
   });
 
@@ -197,11 +223,27 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
   // Briefing do dia (cards + fala) a partir do CRM e das pendências do cérebro.
   app.get("/api/briefing", async (c) => {
     try {
-      return c.json(await loadBriefing(config, brain, fetchImpl));
+      return c.json(await loadBriefing(config, brain, fetchImpl, new Date(), skills));
     } catch (err) {
       console.error("briefing falhou:", err);
       return c.json({ error: "Não consegui montar o briefing." }, 500);
     }
+  });
+
+  // Lembretes: a HUD pergunta a cada 30 s quais venceram e avisa em voz.
+  const reminderView = (r: { id: string; texto: string; quando: string; status: string }) => ({ id: r.id, texto: r.texto, quando: r.quando, status: r.status });
+  app.get("/api/lembretes", async (c) => c.json({ lembretes: (await skills.reminders.open()).map(reminderView) }));
+  // Sem efeito colateral: a tela manda até onde já avisou (desde) e guarda o "agora" devolvido.
+  app.get("/api/lembretes/avisos", async (c) => {
+    const now = new Date();
+    const weekAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+    const asked = Date.parse(c.req.query("desde") ?? "");
+    const since = new Date(Number.isNaN(asked) ? now.getTime() - 60_000 : Math.min(now.getTime(), Math.max(asked, weekAgo)));
+    return c.json({ avisos: (await skills.reminders.dueBetween(since, now)).map(reminderView), agora: now.toISOString() });
+  });
+  app.post("/api/lembretes/:id/concluir", async (c) => {
+    const r = await skills.reminders.complete(c.req.param("id"));
+    return r ? c.json({ ok: true, lembrete: reminderView(r) }) : c.json({ error: "Lembrete não encontrado." }, 404);
   });
 
   app.get("/api/connectors", (c) =>

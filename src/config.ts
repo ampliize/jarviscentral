@@ -48,6 +48,8 @@ export interface Config {
   dataDir: string;
   timeZone: string;
   ownerName: string;
+  /** Cidade padrão do clima (JARVIS_CITY). */
+  city: string;
   corsOrigins: string[];
   ampliize: { url: string; key: string } | null;
   projects: ProjectConfig[];
@@ -123,6 +125,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dataDir: path.resolve(env.DATA_DIR || "./data"),
     timeZone: env.TZ_JARVIS || "America/Maceio",
     ownerName: env.JARVIS_OWNER_NAME?.trim() || "Davy",
+    city: env.JARVIS_CITY?.trim() || "Aracaju",
     corsOrigins: (env.JARVIS_CORS_ORIGINS ?? "")
       .split(",")
       .map((s) => s.trim())
