@@ -33,10 +33,13 @@ export interface BrainGitConfig {
 
 export interface Config {
   port: number;
+  /** Vazio = o Jarvis gera e guarda em DATA_DIR/.access-token no primeiro start. */
   accessToken: string;
   openaiApiKey: string;
   /** Endpoint compatível com a OpenAI (ex.: Ollama em http://ollama:11434/v1). */
   openaiBaseUrl: string;
+  /** O chat usa a API oficial da OpenAI (e portanto precisa da OPENAI_API_KEY)? */
+  usesOpenAI: boolean;
   /** Chave enviada ao endpoint do chat. Fora da OpenAI, só LLM_API_KEY (nunca a chave da OpenAI). */
   llmApiKey: string;
   openaiModel: string;
@@ -71,12 +74,15 @@ function parseProjects(raw: string | undefined): ProjectConfig[] {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const accessToken = env.JARVIS_ACCESS_TOKEN ?? "";
-  if (accessToken.length < 24) {
-    throw new Error("Defina JARVIS_ACCESS_TOKEN com pelo menos 24 caracteres (é a senha de acesso ao Jarvis).");
+  // Sem JARVIS_ACCESS_TOKEN o Jarvis gera uma senha no primeiro start (ver app.ts).
+  const rawToken = env.JARVIS_ACCESS_TOKEN ?? "";
+  const accessToken = rawToken.trim();
+  if (rawToken && !accessToken) throw new Error("JARVIS_ACCESS_TOKEN está só com espaços: apague a variável ou defina uma senha.");
+  if (accessToken && accessToken.length < 24) {
+    throw new Error("JARVIS_ACCESS_TOKEN precisa ter pelo menos 24 caracteres (ou deixe vazio para o Jarvis gerar uma).");
   }
-  const openaiApiKey = env.OPENAI_API_KEY ?? "";
-  if (!openaiApiKey) throw new Error("Defina OPENAI_API_KEY.");
+  // Sem chave o Jarvis sobe mesmo assim e mostra na tela o que falta configurar.
+  const openaiApiKey = env.OPENAI_API_KEY?.trim() ?? "";
 
   const ampliizeUrl = env.AMPLIIZE_API_URL?.trim();
   const ampliizeKey = env.AMPLIIZE_API_KEY?.trim();
@@ -84,6 +90,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const openaiBaseUrl = (env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1").replace(/\/+$/, "");
   if (!/^https?:\/\//.test(openaiBaseUrl)) throw new Error("OPENAI_BASE_URL precisa começar com http:// ou https://");
+  const usesOpenAI = /^https:\/\/api\.openai\.com(\/|$)/.test(openaiBaseUrl);
 
   const brainUrl = env.BRAIN_GIT_URL?.trim();
   const brainToken = env.BRAIN_GIT_TOKEN?.trim() ?? "";
@@ -96,7 +103,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     accessToken,
     openaiApiKey,
     openaiBaseUrl,
-    llmApiKey: env.LLM_API_KEY?.trim() || (/^https:\/\/api\.openai\.com(\/|$)/.test(openaiBaseUrl) ? openaiApiKey : ""),
+    usesOpenAI,
+    llmApiKey: env.LLM_API_KEY?.trim() || (usesOpenAI ? openaiApiKey : ""),
     openaiModel: env.OPENAI_MODEL?.trim() || "gpt-4.1",
     voice: {
       apiKey: env.OPENAI_VOICE_API_KEY?.trim() || openaiApiKey,

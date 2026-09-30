@@ -12,6 +12,8 @@ import { OpenAIError } from "./llm/openai.js";
 import { Brain } from "./memory/brain.js";
 import { BrainGit } from "./memory/brainGit.js";
 import { MAX_AUDIO_BYTES, audioExtension, speak, transcribe } from "./voice.js";
+import { ensureAccessToken } from "./setup.js";
+import { callResource } from "./connectors/resourceApi.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 30;
@@ -45,6 +47,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
   const brain = new Brain(config.dataDir);
   const store = new ConversationStore(config.dataDir);
   await Promise.all([brain.init(), store.init()]);
+  const access = await ensureAccessToken(config.dataDir, config.accessToken);
   const connectors = buildConnectors(config, brain, fetchImpl);
 
   // Cérebro no Obsidian: clona/sincroniza em segundo plano para não travar a subida.
@@ -83,18 +86,72 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
 
     const header = c.req.header("authorization") ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-    if (!token || !sameToken(token, config.accessToken)) return c.json({ error: "Não autorizado." }, 401);
+    if (!token || !sameToken(token, access.token)) return c.json({ error: "Não autorizado." }, 401);
     return next();
   });
 
-  app.get("/api/status", (c) =>
-    c.json({
+  const chatKeyMissing = config.usesOpenAI && !config.llmApiKey;
+  const missingKey = (c: Context) => c.json({ error: "Falta configurar a OPENAI_API_KEY no Easypanel." }, 503);
+
+  // Teste de conexão com o CRM: guardado por 1 minuto e uma chamada por vez.
+  let crmCheck: { at: number; ok: boolean; erro?: string } | null = null;
+  let crmPending: Promise<{ at: number; ok: boolean; erro?: string }> | null = null;
+  const checkCrm = async () => {
+    if (!config.ampliize) return null;
+    if (crmCheck && Date.now() - crmCheck.at < 60_000) return crmCheck;
+    crmPending ??= callResource({ ...config.ampliize, fetchImpl, timeoutMs: 5_000 }, "resources")
+      .then(() => ({ at: Date.now(), ok: true }))
+      .catch((err: unknown) => ({ at: Date.now(), ok: false, erro: err instanceof Error ? err.message : "falha" }))
+      .then((result) => {
+        crmCheck = result;
+        crmPending = null;
+        return result;
+      });
+    return crmPending;
+  };
+
+  app.get("/api/status", async (c) => {
+    const crm = await checkCrm();
+    const brainReady = brain.git ? await brain.git.isReady() : false;
+    return c.json({
       modelo: config.openaiModel,
       voz: { ouvir: config.voice.sttModel, falar: `${config.voice.ttsModel}/${config.voice.ttsVoice}` },
-      cerebro: brain.git ? { obsidian: true, ultima_sincronizacao: brain.git.lastSync } : { obsidian: false },
+      cerebro: brain.git ? { obsidian: true, pronto: brainReady, ultima_sincronizacao: brain.git.lastSync } : { obsidian: false },
       conectores: connectors.map((k) => k.id),
-    }),
-  );
+      // Lista do que está pronto e do que falta, para a tela de configuração.
+      configuracao: [
+        {
+          item: "Chave da OpenAI",
+          ok: !chatKeyMissing && !!config.voice.apiKey,
+          dica: chatKeyMissing
+            ? "Defina OPENAI_API_KEY no Easypanel (Environment) e faça Deploy."
+            : "A voz usa a OpenAI: defina OPENAI_API_KEY (ou OPENAI_VOICE_API_KEY) para o microfone funcionar.",
+        },
+        {
+          item: "CRM da Ampliize",
+          ok: !!crm?.ok,
+          dica: !config.ampliize
+            ? "Defina AMPLIIZE_API_URL e AMPLIIZE_API_KEY (chave gerada no CRM: Monitor → Chaves de API)."
+            : `O CRM não respondeu: ${crm?.erro ?? "erro"}. Confira a AMPLIIZE_API_URL e a AMPLIIZE_API_KEY.`,
+        },
+        {
+          item: "Cérebro no Obsidian",
+          opcional: true,
+          ok: brainReady && brain.git?.lastSync?.ok !== false,
+          dica: !brain.git
+            ? "Opcional: defina BRAIN_GIT_URL e BRAIN_GIT_TOKEN para sincronizar com o Obsidian."
+            : `Sincronização com problema: ${brain.git.lastSync?.message ?? "aguardando o primeiro clone"}.`,
+        },
+        {
+          item: "Senha de acesso",
+          ok: true,
+          dica: config.accessToken
+            ? "Definida em JARVIS_ACCESS_TOKEN."
+            : `Gerada automaticamente: aparece nos logs do primeiro start e fica em ${path.join(config.dataDir, ".access-token")}.`,
+        },
+      ],
+    });
+  });
 
   app.post("/api/brain/sync", async (c) => {
     if (!brain.git) return c.json({ error: "Sincronização com o Obsidian não configurada (BRAIN_GIT_URL)." }, 400);
@@ -107,6 +164,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
   });
 
   app.post("/api/voice/transcribe", async (c) => {
+    if (!config.voice.apiKey) return missingKey(c);
     const type = c.req.header("content-type") ?? "";
     if (!audioExtension(type)) return c.json({ error: "Envie o áudio (webm, ogg, mp4, m4a, mp3 ou wav)." }, 415);
     if (Number(c.req.header("content-length") ?? 0) > MAX_AUDIO_BYTES) return c.json({ error: "Áudio longo demais." }, 413);
@@ -122,6 +180,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
   });
 
   app.post("/api/voice/speak", async (c) => {
+    if (!config.voice.apiKey) return missingKey(c);
     const body = (await c.req.json().catch(() => null)) as { text?: unknown } | null;
     const text = typeof body?.text === "string" ? body.text : "";
     if (!text.trim()) return c.json({ error: "Envie { text }." }, 400);
@@ -151,6 +210,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
     const question = typeof body?.message === "string" ? body.message.trim() : "";
     if (!question) return c.json({ error: "Envie { message }." }, 400);
     if (question.length > MAX_QUESTION_CHARS) return c.json({ error: "Mensagem longa demais." }, 413);
+    if (chatKeyMissing) return missingKey(c);
 
     const conversationId = store.isValidId(body?.conversationId) ? body.conversationId : store.newId();
     const history = await store.recent(conversationId);

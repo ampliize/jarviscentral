@@ -36,6 +36,11 @@
   #mic.on { background:var(--rec); color:#fff; border-color:var(--rec); }
   .empty { color:var(--muted); text-align:center; margin-top:12vh; line-height:1.7; }
   .empty b { color:var(--ink); }
+  .setup { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; font-size:14px; line-height:1.5; }
+  .setup h2 { font-size:14px; margin:0 0 8px; letter-spacing:.08em; }
+  .setup li { margin:4px 0; list-style:none; }
+  .setup ul { padding:0; margin:0; }
+  .setup small { color:var(--muted); display:block; margin-left:22px; }
   .link { background:none; color:var(--muted); padding:0; font-weight:400; font-size:12px; text-decoration:underline; min-height:0; }
 </style>
 </head>
@@ -48,6 +53,7 @@
     <label title="O Jarvis lê as respostas em voz alta"><input type="checkbox" id="speakToggle"> falar respostas</label>
     <label title="Bata duas palmas para ele começar a ouvir (com esta aba aberta)"><input type="checkbox" id="clapToggle"> modo palmas</label>
     <label title="Sensibilidade da palma: para a direita, precisa bater mais forte">sens. <input type="range" id="clapThresh" min="0.15" max="0.9" step="0.05"></label>
+    <button class="link" id="cfg" type="button">configuração</button>
     <button class="link" id="nova" type="button">nova conversa</button>
   </div>
 </header>
@@ -80,14 +86,17 @@
     document.body.classList.toggle('busy', mode === 'busy');
     document.body.classList.toggle('listening', mode === 'listening');
   };
+  let firstLogin = false;
   const getToken = () => {
     let t = store.get('jarvis_token', '');
-    if (!t) { t = prompt('Senha de acesso do Jarvis (JARVIS_ACCESS_TOKEN):') || ''; store.set('jarvis_token', t); }
+    if (!t) { t = prompt('Senha de acesso do Jarvis (está nos Logs do Easypanel):') || ''; store.set('jarvis_token', t); firstLogin = true; }
     return t;
   };
   const api = async (path, init = {}) => {
     const res = await fetch(path, { ...init, headers: { ...(init.headers || {}), Authorization: 'Bearer ' + getToken() } });
     if (res.status === 401) { store.del('jarvis_token'); throw new Error('Senha incorreta. Tente de novo para digitar a senha.'); }
+    // Primeiro acesso: mostra o que ainda falta configurar.
+    if (firstLogin && path !== '/api/status') { firstLogin = false; showSetup(true); }
     return res;
   };
   const add = (text, who, extra) => {
@@ -140,7 +149,7 @@
     try {
       const res = await api('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, conversationId }) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { add(data.error || 'Erro ao falar com o Jarvis.', 'jarvis', { error: true }); return; }
+      if (!res.ok) { add(data.error || 'Erro ao falar com o Jarvis.', 'jarvis', { error: true }); if (res.status === 503) showSetup(false); return; }
       conversationId = data.conversationId;
       sessionStorage.setItem('jarvis_conversation', conversationId);
       add(data.answer, 'jarvis', { tools: data.tools });
@@ -165,6 +174,42 @@
   $('nova').onclick = () => { conversationId = null; sessionStorage.removeItem('jarvis_conversation'); log.innerHTML = ''; add('Nova conversa iniciada.', 'jarvis'); };
   speakToggle.onchange = () => store.set('jarvis_speak', speakToggle.checked ? '1' : '0');
   clapThresh.oninput = () => store.set('jarvis_clap_thresh', clapThresh.value);
+
+  // ---------------- configuração ----------------
+  /** Mostra o que está pronto e o que falta (OpenAI, CRM, Obsidian). */
+  const showSetup = async (onlyIfMissing) => {
+    try {
+      const res = await api('/api/status');
+      if (!res.ok) return;
+      const data = await res.json();
+      const items = data.configuracao || [];
+      if (onlyIfMissing && items.every((i) => i.ok || i.opcional)) return;
+      $('empty')?.remove();
+      document.querySelector('.setup')?.remove();
+      const box = document.createElement('div');
+      box.className = 'setup';
+      const h = document.createElement('h2');
+      h.textContent = 'CONFIGURAÇÃO';
+      box.appendChild(h);
+      const ul = document.createElement('ul');
+      for (const i of items) {
+        const li = document.createElement('li');
+        li.textContent = (i.ok ? '✅ ' : i.opcional ? '➖ ' : '⚠️ ') + i.item + (i.opcional && !i.ok ? ' (opcional)' : '');
+        if (!i.ok || i.item === 'Senha de acesso') {
+          const tip = document.createElement('small');
+          tip.textContent = i.dica;
+          li.appendChild(tip);
+        }
+        ul.appendChild(li);
+      }
+      box.appendChild(ul);
+      log.prepend(box);
+    } catch (err) {
+      add(err.message || 'Não consegui ler a configuração.', 'jarvis', { error: true });
+    }
+  };
+  $('cfg').onclick = () => showSetup(false);
+  if (store.get('jarvis_token', '')) showSetup(true);
 
   // ---------------- microfone ----------------
   let stream = null, audioCtx = null, analyser = null, recorder = null, recording = false;
@@ -217,6 +262,7 @@
       try {
         const res = await api('/api/voice/transcribe', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
         const data = await res.json().catch(() => ({}));
+        if (res.status === 503) showSetup(false);
         if (!res.ok) throw new Error(data.error || 'Não consegui entender o áudio.');
         const text = (data.text || '').trim();
         if (!text) { add('Não ouvi nada. Tente de novo.', 'jarvis', { error: true }); setStatus('pronto'); return; }

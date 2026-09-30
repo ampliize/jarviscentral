@@ -197,3 +197,58 @@ test("contexto permanente entra no prompt do modelo", async () => {
   await app.request("/api/chat", { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ message: "oi" }) });
   assert.match(system, /Contexto permanente[\s\S]*Sou o Davy, dono da Ampliize\./);
 });
+
+test("primeiro start: sem senha definida o Jarvis gera, guarda e reaproveita", async () => {
+  const env = await baseEnv({ JARVIS_ACCESS_TOKEN: "" });
+  const logs: string[] = [];
+  const { ensureAccessToken } = await import("../src/setup.js");
+  const first = await ensureAccessToken(env.DATA_DIR, "", (m) => logs.push(m));
+  assert.equal(first.generated, true);
+  assert.ok(first.token.length >= 24);
+  assert.ok(logs.join("").includes(first.token));
+  const again = await ensureAccessToken(env.DATA_DIR, "", (m) => logs.push(m));
+  assert.deepEqual(again, { token: first.token, generated: false });
+  assert.equal(logs.length, 1);
+
+  const app = await createApp({ config: loadConfig(env), fetchImpl: (async () => json({})) as typeof fetch });
+  assert.equal((await app.request("/api/connectors", { headers: auth })).status, 401);
+  assert.equal((await app.request("/api/connectors", { headers: { Authorization: `Bearer ${first.token}` } })).status, 200);
+});
+
+test("sem OPENAI_API_KEY: sobe, avisa no chat e na voz, e a configuração mostra o que falta", async () => {
+  const env = await baseEnv({ OPENAI_API_KEY: "", AMPLIIZE_API_URL: "https://crm.test/api", AMPLIIZE_API_KEY: "amp_" + "a".repeat(48) });
+  const fetchImpl = (async (url: RequestInfo | URL) =>
+    String(url).startsWith("https://crm.test") ? json({ resource: "resources", data: {} }) : json({}, 500)) as typeof fetch;
+  const app = await createApp({ config: loadConfig(env), fetchImpl });
+  const chat = await app.request("/api/chat", { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ message: "oi" }) });
+  assert.equal(chat.status, 503);
+  assert.match(((await chat.json()) as any).error, /OPENAI_API_KEY/);
+  const speakRes = await app.request("/api/voice/speak", { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ text: "oi" }) });
+  assert.equal(speakRes.status, 503);
+  const status = (await (await app.request("/api/status", { headers: auth })).json()) as any;
+  const byItem = Object.fromEntries(status.configuracao.map((i: any) => [i.item, i.ok]));
+  assert.deepEqual(byItem, { "Chave da OpenAI": false, "CRM da Ampliize": true, "Cérebro no Obsidian": false, "Senha de acesso": true });
+  assert.equal(status.configuracao.find((i: any) => i.item === "Cérebro no Obsidian").opcional, true);
+});
+
+test("senha: arquivo corrompido ou variável em branco param a subida em vez de trocar a senha", async () => {
+  const env = await baseEnv({ JARVIS_ACCESS_TOKEN: "" });
+  const { ensureAccessToken } = await import("../src/setup.js");
+  await writeFile(path.join(env.DATA_DIR, ".access-token"), "curta\n");
+  await assert.rejects(ensureAccessToken(env.DATA_DIR, "", () => undefined), /corrompido/);
+  assert.equal((await readFile(path.join(env.DATA_DIR, ".access-token"), "utf8")).trim(), "curta");
+  assert.throws(() => loadConfig({ ...env, JARVIS_ACCESS_TOKEN: "   " }), /espaços/);
+});
+
+test("status: várias chamadas ao mesmo tempo testam o CRM uma vez só", async () => {
+  let crmCalls = 0;
+  const env = await baseEnv({ AMPLIIZE_API_URL: "https://crm.test/api", AMPLIIZE_API_KEY: "amp_" + "a".repeat(48) });
+  const fetchImpl = (async (url: RequestInfo | URL) => {
+    if (String(url).startsWith("https://crm.test")) crmCalls++;
+    return json({ resource: "resources", data: {} });
+  }) as typeof fetch;
+  const app = await createApp({ config: loadConfig(env), fetchImpl });
+  await Promise.all([1, 2, 3].map(() => app.request("/api/status", { headers: auth })));
+  await app.request("/api/status", { headers: auth });
+  assert.equal(crmCalls, 1);
+});
