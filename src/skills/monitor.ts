@@ -40,10 +40,13 @@ const HISTORY_MS = 24 * 60 * 60 * 1000;
 const SAMPLE_MS = 4 * 60 * 1000;
 const MAX_SYSTEMS = 50;
 
+/** Domínio de verdade (ex.: site.com.br) ou IP; descarta exemplos como "https://..." no texto. */
+const HOSTNAME_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const validUrl = (text: string) => {
   try {
     const u = new URL(text);
-    return u.protocol === "https:" && !!u.hostname ? u : null;
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    return u.protocol === "https:" && (HOSTNAME_RE.test(host) || net.isIP(host) !== 0) ? u : null;
   } catch {
     return null;
   }

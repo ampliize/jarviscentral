@@ -78,6 +78,8 @@ test("sistemas: lê lista e tabela Markdown, sem repetir URL", () => {
 - https://crm.x.com | CRM | Ampliize
 - Quebrada | https://% | Cliente
 - http://inseguro.com | sem https
+Uma linha por sistema: \`Nome | https://... | Cliente\`. Só \`https://\` de endereços públicos.
+- Sem domínio | https://localhost
 texto sem link`;
   assert.deepEqual(parseSystems(md), [
     { nome: "CRM da Ampliize", url: "https://ampliize.lovable.app", cliente: "Ampliize" },
