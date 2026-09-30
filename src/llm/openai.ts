@@ -41,6 +41,8 @@ export class OpenAIError extends Error {
 
 export interface ChatOptions {
   apiKey: string;
+  /** Endpoint compatível com a OpenAI. Padrão: https://api.openai.com/v1 */
+  baseUrl?: string;
   model: string;
   messages: ChatMessage[];
   tools: ToolDefinition[];
@@ -54,9 +56,9 @@ const FALLBACK_MODEL = "gpt-4o-mini";
 
 async function request(opts: ChatOptions, model: string, messages: ChatMessage[]) {
   const doFetch = opts.fetchImpl ?? fetch;
-  const response = await doFetch("https://api.openai.com/v1/chat/completions", {
+  const response = await doFetch(`${opts.baseUrl ?? "https://api.openai.com/v1"}/chat/completions`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${opts.apiKey}`, "Content-Type": "application/json" },
+    headers: { ...(opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {}), "Content-Type": "application/json" },
     signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
     body: JSON.stringify({
       model,

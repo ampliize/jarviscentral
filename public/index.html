@@ -5,17 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jarvis</title>
 <style>
-  :root { --bg:#05090b; --panel:#0b1417; --line:#12303a; --ink:#e6f6f6; --muted:#7fa3a8; --accent:#2fd3c4; --accent-dim:#0f4b4a; --warn:#ffb454; }
+  :root { --bg:#05090b; --panel:#0b1417; --line:#12303a; --ink:#e6f6f6; --muted:#7fa3a8; --accent:#2fd3c4; --accent-dim:#0f4b4a; --warn:#ffb454; --rec:#ff5d6c; }
   * { box-sizing: border-box; }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   body { display:flex; flex-direction:column; background: radial-gradient(circle at 50% -20%, #0e3a3a 0%, var(--bg) 55%); }
-  header { display:flex; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); }
-  .core { width:30px; height:30px; border-radius:50%; border:2px solid var(--accent); box-shadow:0 0 18px var(--accent); position:relative; }
+  header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .core { width:30px; height:30px; border-radius:50%; border:2px solid var(--accent); box-shadow:0 0 18px var(--accent); position:relative; flex:none; }
   .core::after { content:""; position:absolute; inset:7px; border-radius:50%; background:var(--accent); opacity:.85; }
   .busy .core { animation:pulse 1s ease-in-out infinite; }
+  .listening .core { border-color:var(--rec); box-shadow:0 0 22px var(--rec); animation:pulse .8s ease-in-out infinite; }
+  .listening .core::after { background:var(--rec); }
   @keyframes pulse { 50% { box-shadow:0 0 34px var(--accent); transform:scale(1.08); } }
   h1 { font-size:16px; letter-spacing:.3em; margin:0; font-weight:600; }
-  header small { color:var(--muted); margin-left:auto; font-size:12px; }
+  #status { color:var(--muted); font-size:12px; }
+  .controls { margin-left:auto; display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .controls label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+  .controls input[type=range] { width:80px; accent-color:var(--accent); }
   main { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; max-width:900px; width:100%; margin:0 auto; }
   .msg { padding:12px 14px; border-radius:12px; line-height:1.55; white-space:pre-wrap; word-wrap:break-word; max-width:92%; }
   .user { align-self:flex-end; background:var(--accent-dim); }
@@ -25,48 +30,68 @@
   form { display:flex; gap:8px; padding:12px 16px 18px; max-width:900px; width:100%; margin:0 auto; }
   textarea { flex:1; resize:none; min-height:48px; max-height:160px; padding:12px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--ink); font:inherit; }
   textarea:focus { outline:none; border-color:var(--accent); }
-  button { border:0; border-radius:12px; padding:0 18px; background:var(--accent); color:#032; font-weight:700; cursor:pointer; }
+  button { border:0; border-radius:12px; padding:0 18px; background:var(--accent); color:#032; font-weight:700; cursor:pointer; min-height:48px; }
   button:disabled { opacity:.5; cursor:default; }
-  .empty { color:var(--muted); text-align:center; margin-top:15vh; }
+  #mic { background:var(--panel); color:var(--accent); border:1px solid var(--line); padding:0 14px; }
+  #mic.on { background:var(--rec); color:#fff; border-color:var(--rec); }
+  .empty { color:var(--muted); text-align:center; margin-top:12vh; line-height:1.7; }
   .empty b { color:var(--ink); }
-  .link { background:none; color:var(--muted); padding:0; font-weight:400; font-size:12px; text-decoration:underline; }
+  .link { background:none; color:var(--muted); padding:0; font-weight:400; font-size:12px; text-decoration:underline; min-height:0; }
 </style>
 </head>
 <body>
 <header>
   <div class="core" aria-hidden="true"></div>
   <h1>JARVIS</h1>
-  <small id="status">pronto</small>
-  <button class="link" id="nova" type="button">nova conversa</button>
+  <span id="status">pronto</span>
+  <div class="controls">
+    <label title="O Jarvis lê as respostas em voz alta"><input type="checkbox" id="speakToggle"> falar respostas</label>
+    <label title="Bata duas palmas para ele começar a ouvir (com esta aba aberta)"><input type="checkbox" id="clapToggle"> modo palmas</label>
+    <label title="Sensibilidade da palma: para a direita, precisa bater mais forte">sens. <input type="range" id="clapThresh" min="0.15" max="0.9" step="0.05"></label>
+    <button class="link" id="nova" type="button">nova conversa</button>
+  </div>
 </header>
 <main id="log">
-  <div class="empty" id="empty"><b>Como posso ajudar?</b><br>Ex.: "Como está a operação hoje?" · "O que está travando os projetos?" · "Quais falhas e acertos tivemos este mês?"</div>
+  <div class="empty" id="empty"><b>Como posso ajudar?</b><br>Escreva, toque no microfone ou ligue o <b>modo palmas</b> e bata duas palmas.<br>Ex.: "Como está a operação hoje?" · "O que está travando os projetos?" · "Anota que o cliente X prefere reunião às sextas"</div>
 </main>
 <form id="form">
   <label for="q" style="position:absolute;left:-9999px">Mensagem</label>
   <textarea id="q" placeholder="Pergunte ao Jarvis…" rows="1"></textarea>
+  <button id="mic" type="button" title="Falar com o Jarvis" aria-label="Falar com o Jarvis">🎙</button>
   <button id="send" type="submit">Enviar</button>
 </form>
 <script>
-  const log = document.getElementById('log');
-  const form = document.getElementById('form');
-  const q = document.getElementById('q');
-  const send = document.getElementById('send');
-  const statusEl = document.getElementById('status');
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const log = $('log'), form = $('form'), q = $('q'), send = $('send'), mic = $('mic'), statusEl = $('status');
+  const speakToggle = $('speakToggle'), clapToggle = $('clapToggle'), clapThresh = $('clapThresh');
+  const store = {
+    get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+    del: (k) => { try { localStorage.removeItem(k); } catch {} },
+  };
   let conversationId = sessionStorage.getItem('jarvis_conversation') || null;
+  speakToggle.checked = store.get('jarvis_speak', '0') === '1';
+  clapThresh.value = store.get('jarvis_clap_thresh', '0.45');
 
+  // ---------------- utilidades ----------------
+  const setStatus = (text, mode) => {
+    statusEl.textContent = text;
+    document.body.classList.toggle('busy', mode === 'busy');
+    document.body.classList.toggle('listening', mode === 'listening');
+  };
   const getToken = () => {
-    let t = null;
-    try { t = localStorage.getItem('jarvis_token'); } catch {}
-    if (!t) {
-      t = prompt('Senha de acesso do Jarvis (JARVIS_ACCESS_TOKEN):') || '';
-      try { localStorage.setItem('jarvis_token', t); } catch {}
-    }
+    let t = store.get('jarvis_token', '');
+    if (!t) { t = prompt('Senha de acesso do Jarvis (JARVIS_ACCESS_TOKEN):') || ''; store.set('jarvis_token', t); }
     return t;
   };
-
+  const api = async (path, init = {}) => {
+    const res = await fetch(path, { ...init, headers: { ...(init.headers || {}), Authorization: 'Bearer ' + getToken() } });
+    if (res.status === 401) { store.del('jarvis_token'); throw new Error('Senha incorreta. Tente de novo para digitar a senha.'); }
+    return res;
+  };
   const add = (text, who, extra) => {
-    document.getElementById('empty')?.remove();
+    $('empty')?.remove();
     const div = document.createElement('div');
     div.className = 'msg ' + who + (extra?.error ? ' error' : '');
     div.textContent = text;
@@ -80,52 +105,178 @@
     log.scrollTop = log.scrollHeight;
   };
 
-  document.getElementById('nova').onclick = () => {
-    conversationId = null;
-    sessionStorage.removeItem('jarvis_conversation');
-    log.innerHTML = '';
-    add('Nova conversa iniciada.', 'jarvis');
+  // ---------------- falar ----------------
+  let currentAudio = null;
+  const stopSpeaking = () => { if (currentAudio) { currentAudio.pause(); currentAudio = null; } try { speechSynthesis.cancel(); } catch {} };
+  const speakBrowser = (text) => new Promise((resolve) => {
+    try {
+      const u = new SpeechSynthesisUtterance(text.slice(0, 1500));
+      u.lang = 'pt-BR'; u.onend = resolve; u.onerror = resolve;
+      speechSynthesis.speak(u);
+    } catch { resolve(); }
+  });
+  const speakText = async (text) => {
+    stopSpeaking();
+    setStatus('falando…', 'busy');
+    try {
+      const res = await api('/api/voice/speak', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      if (!res.ok) throw new Error('tts');
+      const url = URL.createObjectURL(await res.blob());
+      currentAudio = new Audio(url);
+      await new Promise((resolve) => { currentAudio.onended = resolve; currentAudio.onerror = resolve; currentAudio.play().catch(resolve); });
+      URL.revokeObjectURL(url);
+    } catch {
+      await speakBrowser(text); // sem a voz da OpenAI, usa a voz do próprio aparelho
+    } finally {
+      currentAudio = null;
+      setStatus(clapToggle.checked ? 'aguardando palmas' : 'pronto');
+    }
   };
 
-  q.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
-  });
+  // ---------------- perguntar ----------------
+  const askJarvis = async (message, { spoken } = {}) => {
+    send.disabled = true; mic.disabled = true;
+    setStatus('pensando…', 'busy');
+    try {
+      const res = await api('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, conversationId }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { add(data.error || 'Erro ao falar com o Jarvis.', 'jarvis', { error: true }); return; }
+      conversationId = data.conversationId;
+      sessionStorage.setItem('jarvis_conversation', conversationId);
+      add(data.answer, 'jarvis', { tools: data.tools });
+      if (spoken || speakToggle.checked) await speakText(data.answer);
+    } catch (err) {
+      add(err.message || 'Sem conexão com o servidor.', 'jarvis', { error: true });
+    } finally {
+      send.disabled = false; mic.disabled = false;
+      setStatus(clapToggle.checked ? 'aguardando palmas' : 'pronto');
+    }
+  };
 
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', (e) => {
     e.preventDefault();
     const message = q.value.trim();
     if (!message) return;
     add(message, 'user');
     q.value = '';
-    send.disabled = true;
-    document.body.classList.add('busy');
-    statusEl.textContent = 'pensando…';
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + getToken() },
-        body: JSON.stringify({ message, conversationId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 401) {
-        try { localStorage.removeItem('jarvis_token'); } catch {}
-        add('Senha incorreta. Envie de novo para digitar a senha.', 'jarvis', { error: true });
-      } else if (!res.ok) {
-        add(data.error || 'Erro ao falar com o Jarvis.', 'jarvis', { error: true });
-      } else {
-        conversationId = data.conversationId;
-        sessionStorage.setItem('jarvis_conversation', conversationId);
-        add(data.answer, 'jarvis', { tools: data.tools });
-      }
-    } catch {
-      add('Sem conexão com o servidor.', 'jarvis', { error: true });
-    } finally {
-      send.disabled = false;
-      document.body.classList.remove('busy');
-      statusEl.textContent = 'pronto';
-      q.focus();
-    }
+    askJarvis(message);
   });
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
+  $('nova').onclick = () => { conversationId = null; sessionStorage.removeItem('jarvis_conversation'); log.innerHTML = ''; add('Nova conversa iniciada.', 'jarvis'); };
+  speakToggle.onchange = () => store.set('jarvis_speak', speakToggle.checked ? '1' : '0');
+  clapThresh.oninput = () => store.set('jarvis_clap_thresh', clapThresh.value);
+
+  // ---------------- microfone ----------------
+  let stream = null, audioCtx = null, analyser = null, recorder = null, recording = false;
+  const SILENCE_RMS = 0.015, SILENCE_MS = 1400, NO_SPEECH_MS = 6000, MAX_MS = 30000;
+
+  const pickMime = () => ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+    .find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+
+  const ensureMic = async () => {
+    if (!window.isSecureContext) throw new Error('O microfone só funciona com HTTPS (ou em localhost).');
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error('Este navegador não grava áudio. Use Chrome, Edge ou Safari atualizados.');
+    if (!stream) {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+    }
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+  };
+  const levels = () => {
+    const buf = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0, peak = 0;
+    for (const v of buf) { sum += v * v; peak = Math.max(peak, Math.abs(v)); }
+    return { rms: Math.sqrt(sum / buf.length), peak };
+  };
+  const beep = (freq = 880, ms = 120) => {
+    try {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = freq; g.gain.value = 0.08;
+      o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + ms / 1000);
+    } catch {}
+  };
+
+  const startRecording = async () => {
+    if (recording) return;
+    stopSpeaking();
+    try { await ensureMic(); } catch (err) { add(err.message || 'Não consegui acessar o microfone. Libere a permissão no navegador.', 'jarvis', { error: true }); return; }
+    const mime = pickMime();
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = async () => {
+      recording = false;
+      mic.classList.remove('on');
+      const blob = new Blob(chunks, { type: (recorder.mimeType || mime || 'audio/webm').split(';')[0] });
+      if (blob.size < 1200) { setStatus(clapToggle.checked ? 'aguardando palmas' : 'pronto'); return; }
+      setStatus('transcrevendo…', 'busy');
+      try {
+        const res = await api('/api/voice/transcribe', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Não consegui entender o áudio.');
+        const text = (data.text || '').trim();
+        if (!text) { add('Não ouvi nada. Tente de novo.', 'jarvis', { error: true }); setStatus('pronto'); return; }
+        add(text, 'user');
+        await askJarvis(text, { spoken: true });
+      } catch (err) {
+        add(err.message, 'jarvis', { error: true });
+        setStatus('pronto');
+      }
+    };
+    recording = true;
+    recorder.start(250);
+    mic.classList.add('on');
+    setStatus('ouvindo… (pare de falar para enviar)', 'listening');
+    beep(880);
+
+    // Para sozinho quando você fica em silêncio.
+    const started = Date.now();
+    let spoke = false, quietSince = Date.now();
+    const tick = setInterval(() => {
+      if (!recording) return clearInterval(tick);
+      const { rms } = levels();
+      const now = Date.now();
+      if (rms > SILENCE_RMS * 2) { spoke = true; quietSince = now; }
+      const stop = (spoke && now - quietSince > SILENCE_MS) || (!spoke && now - started > NO_SPEECH_MS) || now - started > MAX_MS;
+      if (stop) { clearInterval(tick); recorder.stop(); beep(660, 90); }
+    }, 100);
+  };
+  mic.onclick = () => (recording ? recorder.stop() : startRecording());
+
+  // ---------------- modo palmas ----------------
+  /** Duas palmas: dois picos entre 150 ms e 900 ms de distância. */
+  const isDoubleClap = (times) => {
+    if (times.length < 2) return false;
+    const gap = times[times.length - 1] - times[times.length - 2];
+    return gap >= 150 && gap <= 900;
+  };
+  window.__jarvis = { isDoubleClap };
+
+  let clapLoop = null;
+  const startClapMode = async () => {
+    try { await ensureMic(); } catch (err) { clapToggle.checked = false; add(err.message, 'jarvis', { error: true }); return; }
+    let claps = [], lastPeak = 0, prevRms = 0;
+    setStatus('aguardando palmas');
+    clapLoop = setInterval(() => {
+      if (recording || send.disabled) { claps = []; return; }
+      const { rms, peak } = levels();
+      const now = performance.now();
+      // Palma = pico forte e súbito (o som de antes era baixo), com intervalo mínimo entre picos.
+      if (peak > Number(clapThresh.value) && prevRms < 0.08 && now - lastPeak > 120) {
+        lastPeak = now;
+        claps = [...claps.filter((t) => now - t < 1500), now];
+        if (isDoubleClap(claps)) { claps = []; startRecording(); }
+      }
+      prevRms = rms;
+    }, 20);
+  };
+  const stopClapMode = () => { clearInterval(clapLoop); clapLoop = null; setStatus('pronto'); };
+  clapToggle.onchange = () => (clapToggle.checked ? startClapMode() : stopClapMode());
+})();
 </script>
 </body>
 </html>

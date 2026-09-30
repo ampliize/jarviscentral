@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { toolResult, type Connector } from "../connectors/types.js";
+import type { BrainGit } from "./brainGit.js";
 
 /**
  * Memória do Jarvis: um vault de Markdown (compatível com Obsidian) em
@@ -52,11 +53,28 @@ export interface SearchHit {
   snippet: string;
 }
 
+const MAX_CONTEXT_CHARS = 4_000;
+
 export class Brain {
   readonly root: string;
+  /** Sincronização com o vault do Obsidian (Git). Null = memória só local. */
+  git: BrainGit | null = null;
 
   constructor(dataDir: string) {
     this.root = path.join(dataDir, "brain");
+  }
+
+  /**
+   * Contexto permanente escrito por você em _jarvis/contexto.md (vai em toda
+   * conversa). Comentários HTML do modelo são ignorados.
+   */
+  async context(): Promise<string> {
+    const raw = await fs.readFile(path.join(this.root, "_jarvis", "contexto.md"), "utf8").catch(() => "");
+    const text = raw
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/^#\s*Contexto permanente\s*$/im, "")
+      .trim();
+    return text.slice(0, MAX_CONTEXT_CHARS);
   }
 
   async init() {
@@ -113,6 +131,19 @@ export class Brain {
     await fs.writeFile(file, `${frontmatter}${body.slice(0, MAX_NOTE_CHARS)}\n`, { flag: "wx" });
     return path.relative(this.root, file);
   }
+
+  /** Envia a nota para o vault (se o Git estiver configurado). Nunca derruba a resposta. */
+  async sync(message: string): Promise<{ sincronizado: boolean; erro?: string }> {
+    if (!this.git) return { sincronizado: false };
+    try {
+      await this.git.commitAndPush(message);
+      return { sincronizado: true };
+    } catch (err) {
+      const erro = err instanceof Error ? err.message : "falha no git";
+      console.error("cérebro: envio falhou:", erro);
+      return { sincronizado: false, erro };
+    }
+  }
 }
 
 /** Ferramentas de memória para o modelo. */
@@ -157,7 +188,14 @@ export function memoryConnector(brain: Brain): Connector {
             String(args.conteudo ?? ""),
             Array.isArray(args.tags) ? args.tags.map(String) : [],
           );
-          return toolResult(true, { gravado_em: file, observacao: "Proposta na inbox; revise e mova no Obsidian." });
+          const sync = await brain.sync(`Jarvis: nota ${file}`);
+          return toolResult(true, {
+            gravado_em: file,
+            enviado_ao_obsidian: sync.sincronizado,
+            observacao: sync.sincronizado
+              ? "Nota na inbox do vault; aparece no Obsidian na próxima sincronização."
+              : "Nota salva só no servidor (sincronização com o Obsidian não configurada ou falhou).",
+          });
         },
       },
     ],

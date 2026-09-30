@@ -2,7 +2,7 @@ import { timingSafeEqual, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { ask, buildConnectors } from "./agent.js";
@@ -10,6 +10,8 @@ import type { Config } from "./config.js";
 import { ConversationStore } from "./conversations/store.js";
 import { OpenAIError } from "./llm/openai.js";
 import { Brain } from "./memory/brain.js";
+import { BrainGit } from "./memory/brainGit.js";
+import { MAX_AUDIO_BYTES, audioExtension, speak, transcribe } from "./voice.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 30;
@@ -23,13 +25,42 @@ const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 export interface AppDeps {
   config: Config;
   fetchImpl?: typeof fetch;
+  /** Testes: esperar o clone do vault antes de responder. */
+  awaitBrainSetup?: boolean;
 }
 
-export async function createApp({ config, fetchImpl }: AppDeps) {
+/** Converte erros da OpenAI em respostas claras para a interface. */
+function aiErrorResponse(c: Context, err: unknown) {
+  if (err instanceof OpenAIError) {
+    if (err.code === "insufficient_quota") return c.json({ error: "A conta da OpenAI está sem créditos." }, 402);
+    if (err.status === 401) return c.json({ error: "OPENAI_API_KEY inválida." }, 503);
+    if (err.status === 429) return c.json({ error: "A OpenAI está limitando as requisições. Tente em instantes." }, 429);
+    return c.json({ error: "A OpenAI falhou. Tente novamente." }, 502);
+  }
+  if (err instanceof DOMException && err.name === "TimeoutError") return c.json({ error: "A IA demorou demais." }, 504);
+  return c.json({ error: "Erro interno do Jarvis." }, 500);
+}
+
+export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps) {
   const brain = new Brain(config.dataDir);
   const store = new ConversationStore(config.dataDir);
   await Promise.all([brain.init(), store.init()]);
   const connectors = buildConnectors(config, brain, fetchImpl);
+
+  // Cérebro no Obsidian: clona/sincroniza em segundo plano para não travar a subida.
+  if (config.brainGit) {
+    const git = new BrainGit(brain.root, config.brainGit);
+    brain.git = git;
+    const setup = git
+      .setup()
+      .then(() => console.log("cérebro: vault sincronizado com o Git"))
+      .catch((err: Error) => {
+        git.lastSync = { at: new Date().toISOString(), ok: false, message: err.message };
+        console.error("cérebro: não consegui clonar o vault (tento de novo no próximo ciclo):", err.message);
+      })
+      .finally(() => git.start());
+    if (awaitBrainSetup) await setup;
+  }
 
   const app = new Hono();
   app.use("*", secureHeaders());
@@ -56,6 +87,53 @@ export async function createApp({ config, fetchImpl }: AppDeps) {
     return next();
   });
 
+  app.get("/api/status", (c) =>
+    c.json({
+      modelo: config.openaiModel,
+      voz: { ouvir: config.voice.sttModel, falar: `${config.voice.ttsModel}/${config.voice.ttsVoice}` },
+      cerebro: brain.git ? { obsidian: true, ultima_sincronizacao: brain.git.lastSync } : { obsidian: false },
+      conectores: connectors.map((k) => k.id),
+    }),
+  );
+
+  app.post("/api/brain/sync", async (c) => {
+    if (!brain.git) return c.json({ error: "Sincronização com o Obsidian não configurada (BRAIN_GIT_URL)." }, 400);
+    try {
+      await brain.git.pull();
+      return c.json({ ok: true, ultima_sincronizacao: brain.git.lastSync });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Falha ao sincronizar." }, 502);
+    }
+  });
+
+  app.post("/api/voice/transcribe", async (c) => {
+    const type = c.req.header("content-type") ?? "";
+    if (!audioExtension(type)) return c.json({ error: "Envie o áudio (webm, ogg, mp4, m4a, mp3 ou wav)." }, 415);
+    if (Number(c.req.header("content-length") ?? 0) > MAX_AUDIO_BYTES) return c.json({ error: "Áudio longo demais." }, 413);
+    const audio = await c.req.arrayBuffer();
+    if (!audio.byteLength) return c.json({ error: "Áudio vazio." }, 400);
+    if (audio.byteLength > MAX_AUDIO_BYTES) return c.json({ error: "Áudio longo demais." }, 413);
+    try {
+      return c.json({ text: await transcribe(config.voice, audio, type, fetchImpl) });
+    } catch (err) {
+      console.error("transcrição falhou:", err);
+      return aiErrorResponse(c, err);
+    }
+  });
+
+  app.post("/api/voice/speak", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { text?: unknown } | null;
+    const text = typeof body?.text === "string" ? body.text : "";
+    if (!text.trim()) return c.json({ error: "Envie { text }." }, 400);
+    try {
+      const mp3 = await speak(config.voice, text, fetchImpl);
+      return new Response(mp3, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
+    } catch (err) {
+      console.error("voz falhou:", err);
+      return aiErrorResponse(c, err);
+    }
+  });
+
   app.get("/api/connectors", (c) =>
     c.json(connectors.map((k) => ({ id: k.id, nome: k.name, descricao: k.description, ferramentas: k.tools.map((t) => t.name) }))),
   );
@@ -78,21 +156,14 @@ export async function createApp({ config, fetchImpl }: AppDeps) {
     const history = await store.recent(conversationId);
 
     try {
-      const result = await ask({ config, connectors, history, question, fetchImpl });
+      const result = await ask({ config, connectors, history, question, permanentContext: await brain.context(), fetchImpl });
       const at = new Date().toISOString();
       await store.append(conversationId, { role: "user", content: question, at });
       await store.append(conversationId, { role: "assistant", content: result.text, at: new Date().toISOString(), tools: result.toolRuns });
       return c.json({ conversationId, answer: result.text, tools: result.toolRuns, usage: result.usage, model: result.model });
     } catch (err) {
       console.error("chat falhou:", err);
-      if (err instanceof OpenAIError) {
-        if (err.code === "insufficient_quota") return c.json({ error: "A conta da OpenAI está sem créditos." }, 402);
-        if (err.status === 401) return c.json({ error: "OPENAI_API_KEY inválida." }, 503);
-        if (err.status === 429) return c.json({ error: "A OpenAI está limitando as requisições. Tente em instantes." }, 429);
-        return c.json({ error: "A OpenAI falhou. Tente novamente." }, 502);
-      }
-      if (err instanceof DOMException && err.name === "TimeoutError") return c.json({ error: "A IA demorou demais." }, 504);
-      return c.json({ error: "Erro interno do Jarvis." }, 500);
+      return aiErrorResponse(c, err);
     }
   });
 
