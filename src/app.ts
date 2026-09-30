@@ -14,6 +14,7 @@ import { BrainGit } from "./memory/brainGit.js";
 import { MAX_AUDIO_BYTES, audioExtension, speak, transcribe } from "./voice.js";
 import { ensureAccessToken } from "./setup.js";
 import { callResource } from "./connectors/resourceApi.js";
+import { loadBriefing } from "./briefing.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 30;
@@ -193,6 +194,16 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
     }
   });
 
+  // Briefing do dia (cards + fala) a partir do CRM e das pendências do cérebro.
+  app.get("/api/briefing", async (c) => {
+    try {
+      return c.json(await loadBriefing(config, brain, fetchImpl));
+    } catch (err) {
+      console.error("briefing falhou:", err);
+      return c.json({ error: "Não consegui montar o briefing." }, 500);
+    }
+  });
+
   app.get("/api/connectors", (c) =>
     c.json(connectors.map((k) => ({ id: k.id, nome: k.name, descricao: k.description, ferramentas: k.tools.map((t) => t.name) }))),
   );
@@ -227,8 +238,11 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup }: AppDeps)
     }
   });
 
-  // Interface provisória (será trocada pelo frontend definitivo do Jarvis).
+  // Interface (HUD com o holograma do camaleão da Ampliize).
   app.get("/", async (c) => c.html(await readFile(path.join(PUBLIC_DIR, "index.html"), "utf8")));
+  app.get("/camaleao.png", async (c) =>
+    c.body(await readFile(path.join(PUBLIC_DIR, "camaleao.png")), 200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" }),
+  );
 
   return app;
 }

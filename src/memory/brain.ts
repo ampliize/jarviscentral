@@ -81,6 +81,29 @@ export class Brain {
     await fs.mkdir(path.join(this.root, "inbox"), { recursive: true });
   }
 
+  /** Todos os itens "- [ ]" ainda abertos em pendencias.md (texto limpo, sem Markdown). */
+  async pendencias(limit = 500): Promise<string[]> {
+    const raw = await fs.readFile(path.join(this.root, "pendencias.md"), "utf8").catch(() => "");
+    return raw
+      .split("\n")
+      .map((line) => /^\s*[-*]\s+\[ \]\s+(.+)$/.exec(line)?.[1] ?? "")
+      .map((text) =>
+        text
+          .replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_m, target: string, alias: string) => alias || target)
+          .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+          .replace(/[*_`]/g, "")
+          .trim(),
+      )
+      .filter(Boolean)
+      .slice(0, limit);
+  }
+
+  /** Notas na inbox/ esperando revisão. */
+  async inboxCount(): Promise<number> {
+    const entries = await fs.readdir(path.join(this.root, "inbox")).catch(() => [] as string[]);
+    return entries.filter((name) => name.endsWith(".md")).length;
+  }
+
   /** Busca por palavras-chave (sem acento, sem caixa). Suficiente até termos embeddings. */
   async search(query: string, limit = 5): Promise<SearchHit[]> {
     const terms = normalize(query)
