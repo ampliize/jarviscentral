@@ -53,6 +53,10 @@ export interface Config {
   corsOrigins: string[];
   ampliize: { url: string; key: string } | null;
   projects: ProjectConfig[];
+  /** Claude para o estúdio de sites (ANTHROPIC_API_KEY). */
+  anthropicApiKey: string;
+  /** Endereço público do Jarvis (ex.: https://jarvis.ampliize.com), usado nas URLs dos sites do estúdio. */
+  publicUrl: string;
   /** GitHub somente leitura para o modo técnico (GITHUB_TOKEN + GITHUB_OWNERS). */
   github: { token: string; owners: string[] } | null;
 }
@@ -144,6 +148,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .filter(Boolean),
     ampliize: ampliizeUrl && ampliizeKey ? { url: ampliizeUrl, key: ampliizeKey } : null,
     projects: parseProjects(env.JARVIS_PROJECTS),
+    anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() ?? "",
+    publicUrl: /^https:\/\/[^\s/]+$/.test(env.JARVIS_PUBLIC_URL?.trim().replace(/\/$/, "") ?? "") ? env.JARVIS_PUBLIC_URL!.trim().replace(/\/$/, "") : "",
     github: env.GITHUB_TOKEN?.trim()
       ? {
           token: env.GITHUB_TOKEN.trim(),

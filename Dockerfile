@@ -13,8 +13,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     DATA_DIR=/data
 WORKDIR /app
-# git: sincronização da memória com o vault do Obsidian
-RUN apk add --no-cache git
+# git: sincronização do vault · ffmpeg: frames do estúdio de sites
+RUN apk add --no-cache git ffmpeg
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
