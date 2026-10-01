@@ -30,6 +30,7 @@ import { sitesConnector } from "./skills/sites.js";
 import { githubConnector } from "./connectors/github.js";
 import type { ToolLink } from "./llm/openai.js";
 import { ClaudeCreative, type CreativeModel } from "./studio/claude.js";
+import { OpenAICreative } from "./studio/openai-creative.js";
 import { isJobId, Studio, StudioError } from "./studio/studio.js";
 import { jobView, studioConnector } from "./studio/connector.js";
 import type { Runner } from "./studio/frames.js";
@@ -85,6 +86,13 @@ function aiErrorResponse(c: Context, err: unknown) {
   return c.json({ error: "Erro interno do Jarvis." }, 500);
 }
 
+/** Motor criativo do estúdio: Claude se houver chave; senão a OpenAI (só com a API oficial, que lê imagens). */
+function studioEngine(config: Config): CreativeModel | null {
+  if (config.anthropicApiKey) return new ClaudeCreative(config.anthropicApiKey);
+  if (config.openaiApiKey) return new OpenAICreative(config.openaiApiKey, config.studioOpenAIModel);
+  return null;
+}
+
 const STUDIO_TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg" };
 const VIDEO_EXT: Record<string, string> = { "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
@@ -130,11 +138,15 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     guard: new AgentGuard({ config, brainRoot: brain.root, dataDir: config.dataDir, fetchImpl, context: () => brain.context() }),
   };
   const audit = new AuditLog(config.dataDir);
+  const engine = studioOptions && "creative" in studioOptions ? studioOptions.creative ?? null : studioEngine(config);
   const studio = new Studio({
     config,
     brain,
     dataDir: config.dataDir,
-    creative: studioOptions && "creative" in studioOptions ? studioOptions.creative ?? null : config.anthropicApiKey ? new ClaudeCreative(config.anthropicApiKey) : null,
+    // Claude quando a ANTHROPIC_API_KEY existir; até lá, a OpenAI que o Jarvis já usa.
+    creative: engine,
+    motor: engine instanceof ClaudeCreative ? "claude" : "openai",
+    searchKeys: { pexels: config.pexelsApiKey, unsplash: config.unsplashAccessKey },
     image: studioOptions?.image,
     net: studioOptions?.net ?? (fetchImpl ? { fetchImpl } : undefined),
     runner: studioOptions?.runner,

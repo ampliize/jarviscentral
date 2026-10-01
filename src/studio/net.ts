@@ -30,12 +30,12 @@ async function assertPublic(url: URL, lookup: (host: string) => Promise<string[]
  * GET https com o IP fixado: a conexão usa o mesmo endereço que acabou de ser
  * checado (sem uma segunda consulta ao DNS que poderia apontar para a rede interna).
  */
-function pinnedGet(url: URL, timeoutMs: number): Promise<Response> {
+function pinnedGet(url: URL, timeoutMs: number, extra: Record<string, string> = {}): Promise<Response> {
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
       {
-        headers: { "User-Agent": "Mozilla/5.0 (Jarvis-Ampliize)", Accept: "*/*" },
+        headers: { "User-Agent": "Mozilla/5.0 (Jarvis-Ampliize)", Accept: "*/*", ...extra },
         timeout: timeoutMs,
         lookup: (host, opts, cb) => {
           dnsLookup(host, { all: true }, (err, addresses: LookupAddress[]) => {
@@ -62,10 +62,11 @@ function pinnedGet(url: URL, timeoutMs: number): Promise<Response> {
 /** Baixa até `maxBytes`, seguindo no máximo 3 redirecionamentos (cada um checado). */
 export async function safeDownload(
   rawUrl: string,
-  { maxBytes, accept, timeoutMs = 20_000 }: { maxBytes: number; accept?: RegExp; timeoutMs?: number },
+  { maxBytes, accept, timeoutMs = 20_000, headers: initialHeaders = {} }: { maxBytes: number; accept?: RegExp; timeoutMs?: number; headers?: Record<string, string> },
   deps: NetDeps = {},
 ): Promise<{ data: Buffer; type: string; url: string }> {
   const fetchImpl = deps.fetchImpl ?? fetch;
+  let headers = initialHeaders;
   const lookup = deps.lookup ?? defaultLookup;
   let url: URL;
   try {
@@ -77,13 +78,16 @@ export async function safeDownload(
     await assertPublic(url, lookup);
     // Sem fetch injetado (produção): conexão com o IP checado. Com fetch injetado: testes.
     const res = deps.fetchImpl
-      ? await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers: { "User-Agent": "Mozilla/5.0 (Jarvis-Ampliize)", Accept: "*/*" } })
-      : await pinnedGet(url, timeoutMs);
+      ? await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers: { "User-Agent": "Mozilla/5.0 (Jarvis-Ampliize)", Accept: "*/*", ...headers } })
+      : await pinnedGet(url, timeoutMs, headers);
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get("location");
       await res.body?.cancel().catch(() => undefined);
       if (!loc) throw new NetError("redirecionamento sem destino");
-      url = new URL(loc, url);
+      const next = new URL(loc, url);
+      // Chave de API (Pexels/Unsplash) nunca segue para outro domínio.
+      if (next.host !== url.host) headers = {};
+      url = next;
       continue;
     }
     if (!res.ok) {

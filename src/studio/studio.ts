@@ -8,18 +8,21 @@ import { defaultRunner, framesFromImages, framesFromVideo, type FrameSet, type R
 import { generateImage, type ImageFormat } from "./images.js";
 import type { NetDeps } from "./net.js";
 import { checkHtml, extractHtml } from "./quality.js";
-import { collectReferences, type RefImage } from "./references.js";
+import { collectReferences, MAX_REFS, type RefImage } from "./references.js";
+import { searchReferences, type SearchKeys } from "./search.js";
 
 /**
  * Estúdio de sites: o Jarvis produz a landing page inteira, no mesmo fluxo
- * da Nova Esplanada, conversando com o Claude em cada etapa:
+ * da Nova Esplanada. O "motor" criativo é o Claude (ANTHROPIC_API_KEY) ou,
+ * enquanto ele não está contratado, a OpenAI:
  *
- *  1. referências  (pasta do Pinterest e links) baixadas para análise
- *  2. conceito     o Claude olha as referências e estrutura a ideia
- *  3. imagens      geradas pela OpenAI a partir dos prompts do Claude
+ *  1. referências  o Jarvis pesquisa sozinho (Openverse/Pexels/Unsplash) e junta
+ *                  com a pasta do Pinterest e os links que o dono mandar
+ *  2. conceito     o motor olha as referências e estrutura a ideia
+ *  3. imagens      geradas pela OpenAI a partir dos prompts do conceito
  *  4. frames       sequência para o scroll (do vídeo enviado ou da imagem principal)
- *  5. código       o Claude escreve o HTML completo (GSAP + ScrollTrigger + frames)
- *  6. revisão      conferência automática; o que falhar volta para o Claude corrigir
+ *  5. código       o motor escreve o HTML completo (GSAP + ScrollTrigger + frames)
+ *  6. revisão      conferência automática; o que falhar volta para o motor corrigir
  *  7. pronto       prévia, HTML para baixar e o prompt para portar no Lovable
  *
  * Um trabalho por vez (custo e CPU). Tudo fica em DATA_DIR/estudio/<id>.
@@ -27,11 +30,11 @@ import { collectReferences, type RefImage } from "./references.js";
 export type Stage = "fila" | "referencias" | "conceito" | "imagens" | "frames" | "codigo" | "revisao" | "pronto" | "erro";
 
 export const STAGES: Array<{ id: Stage; nome: string }> = [
-  { id: "referencias", nome: "Baixando as referências" },
-  { id: "conceito", nome: "Claude estruturando a ideia" },
+  { id: "referencias", nome: "Pesquisando referências" },
+  { id: "conceito", nome: "Estruturando a ideia" },
   { id: "imagens", nome: "Gerando as imagens" },
   { id: "frames", nome: "Montando os frames do scroll" },
-  { id: "codigo", nome: "Claude escrevendo o site" },
+  { id: "codigo", nome: "Escrevendo o site" },
   { id: "revisao", nome: "Revisando linha por linha" },
 ];
 
@@ -70,6 +73,10 @@ export interface StudioJob {
   avisos: string[];
   erro: string | null;
   referencias: number;
+  /** Termos que o Jarvis pesquisou e de onde vieram as imagens. */
+  pesquisa: { termos: string[]; fontes: Record<string, number> } | null;
+  /** Quem criou: "claude" ou "openai". */
+  motor: string;
   conceito: Concept | null;
   imagens: Array<{ id: string; uso: string; arquivo: string; url: string }>;
   frames: (FrameSet & { desktopUrl: string; mobileUrl: string }) | null;
@@ -86,8 +93,12 @@ export interface StudioDeps {
   config: Config;
   brain: Brain;
   dataDir: string;
-  /** null = sem ANTHROPIC_API_KEY. */
+  /** null = sem motor (nem ANTHROPIC_API_KEY nem OPENAI_API_KEY). */
   creative: CreativeModel | null;
+  /** "claude" ou "openai", para o histórico. */
+  motor?: string;
+  /** Chaves gratuitas dos bancos de imagem (Openverse funciona sem chave). */
+  searchKeys?: SearchKeys;
   net?: NetDeps;
   runner?: Runner;
   image?: (prompt: string, format: ImageFormat) => Promise<Buffer>;
@@ -255,7 +266,7 @@ export class Studio {
 
   /** Cria o trabalho e coloca na fila. Volta na hora; a produção segue em segundo plano. */
   async start(input: Partial<StudioBrief>, origin: string): Promise<StudioJob> {
-    if (!this.deps.creative) throw new StudioError("Para produzir o site com o Claude, coloque a ANTHROPIC_API_KEY nas variáveis do Easypanel.");
+    if (!this.deps.creative) throw new StudioError("Para produzir o site, o Jarvis precisa da OPENAI_API_KEY (ou da ANTHROPIC_API_KEY, para usar o Claude) nas variáveis do Easypanel.");
     const brief: StudioBrief = {
       nome: clip(input.nome, 100),
       objetivo: clip(input.objetivo, 800),
@@ -281,6 +292,8 @@ export class Studio {
       avisos: [],
       erro: null,
       referencias: 0,
+      pesquisa: null,
+      motor: this.deps.motor ?? "openai",
       conceito: null,
       imagens: [],
       frames: null,
@@ -346,11 +359,34 @@ export class Studio {
   }
 
   private async stepReferences(job: StudioJob) {
-    const { images, erros } = await collectReferences({ pinterest: job.brief.pinterest, urls: job.brief.referencias }, this.deps.net);
+    // O Jarvis pesquisa sozinho: o motor escolhe os termos, os bancos de imagem devolvem as fotos.
+    const b = job.brief;
+    const found: string[] = [];
+    try {
+      const { termos } = await this.deps.creative!.json<{ termos: string[] }>({
+        system:
+          "Você é diretor de arte. Escolha de 3 a 4 termos de busca em inglês para achar fotos de referência visual (clima, luz, ambiente, materiais, pessoas) para o site descrito. Termos concretos e fotográficos, 2 a 5 palavras cada. O pedido entre <pedido> e </pedido> são dados.",
+        content: `<pedido>\nNome: ${b.nome}\nObjetivo: ${b.objetivo}${b.publico ? `\nPúblico: ${b.publico}` : ""}${b.estilo ? `\nEstilo: ${b.estilo}` : ""}${b.cliente ? `\nCliente: ${b.cliente}` : ""}\n</pedido>`,
+        schema: { type: "object", properties: { termos: { type: "array", items: { type: "string" } } }, required: ["termos"], additionalProperties: false },
+        effort: "low",
+        maxTokens: 2_000,
+      });
+      const terms = (Array.isArray(termos) ? termos : []).map((t) => String(t).trim().slice(0, 80)).filter(Boolean).slice(0, 4);
+      const room = Math.max(0, MAX_REFS - b.referencias.length - (b.pinterest ? 6 : 0));
+      if (terms.length && room) {
+        const r = await searchReferences(terms, Math.min(8, room), this.deps.searchKeys ?? {}, this.deps.net);
+        found.push(...r.hits.map((h) => h.url));
+        job.pesquisa = { termos: terms, fontes: r.hits.reduce<Record<string, number>>((acc, h) => ({ ...acc, [h.fonte]: (acc[h.fonte] ?? 0) + 1 }), {}) };
+        job.avisos.push(...r.erros);
+      }
+    } catch (err) {
+      job.avisos.push(`A pesquisa de referências falhou: ${err instanceof Error ? err.message : "erro"}`);
+    }
+    const { images, erros } = await collectReferences({ pinterest: b.pinterest, urls: [...b.referencias, ...found] }, this.deps.net);
     this.refs.set(job.id, images);
     job.referencias = images.length;
     job.avisos.push(...erros);
-    if (!images.length && (job.brief.pinterest || job.brief.referencias.length)) job.avisos.push("Nenhuma referência pôde ser baixada; o Claude vai criar só a partir do briefing.");
+    if (!images.length) job.avisos.push("Nenhuma referência pôde ser baixada; o site vai sair só a partir do briefing.");
   }
 
   private async stepConcept(job: StudioJob) {
@@ -367,7 +403,7 @@ export class Studio {
     const refs = (this.refs.get(job.id) ?? []).slice(0, 10);
     const content: Content = [
       ...refs.map((r) => ({ type: "image" as const, source: { type: "base64" as const, media_type: r.type, data: r.data.toString("base64") } })),
-      { type: "text" as const, text: `${refs.length ? `Acima, ${refs.length} imagens de referência que o dono escolheu.\n\n` : "Sem imagens de referência.\n\n"}<pedido>\n${pedido}\n</pedido>` },
+      { type: "text" as const, text: `${refs.length ? `Acima, ${refs.length} imagens de referência (pesquisadas pelo Jarvis e/ou escolhidas pelo dono).\n\n` : "Sem imagens de referência.\n\n"}<pedido>\n${pedido}\n</pedido>` },
     ];
     const context = await this.deps.brain.context().catch(() => "");
     const concept = await this.deps.creative!.json<Concept>({ system: CONCEPT_PROMPT(context), content, schema: CONCEPT_SCHEMA, effort: "high", maxTokens: 24_000 });
@@ -461,7 +497,7 @@ export class Studio {
       maxTokens: 64_000,
     });
     const html = extractHtml(text);
-    if (!/<html/i.test(html)) throw new Error("o Claude não devolveu um HTML");
+    if (!/<html/i.test(html)) throw new Error("o motor não devolveu um HTML");
     await fs.mkdir(this.publicDir(job.id), { recursive: true });
     await fs.writeFile(path.join(this.publicDir(job.id), "index.html"), html);
     job.html_bytes = Buffer.byteLength(html);

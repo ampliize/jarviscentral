@@ -15,6 +15,8 @@ export function jobView(job: StudioJob) {
     criado_em: job.criado_em,
     atualizado_em: job.atualizado_em,
     referencias: job.referencias,
+    pesquisa: job.pesquisa ?? null,
+    motor: job.motor ?? "openai",
     imagens: job.imagens.length,
     frames: job.frames ? { quantidade: job.frames.count, origem: job.frames.origem } : null,
     conceito: job.conceito ? { titulo: job.conceito.titulo, ideia: job.conceito.conceito, secoes: job.conceito.secoes.map((s) => s.nome) } : null,
@@ -32,13 +34,13 @@ export function jobView(job: StudioJob) {
 export function studioConnector(studio: Studio, origin: () => string): Connector {
   return {
     id: "estudio",
-    name: "Estúdio de sites (Jarvis + Claude)",
-    description: "Produz a landing page inteira com o Claude: referências do Pinterest, conceito, imagens, frames do scroll, HTML com GSAP, revisão e prompt para o Lovable.",
+    name: "Estúdio de sites",
+    description: "Produz a landing page inteira: pesquisa referências sozinho, conceito, imagens, frames do scroll, HTML com GSAP, revisão e prompt para o Lovable.",
     tools: [
       {
         name: "site_produzir",
         description:
-          "Produz o site completo com animação de scroll, de verdade: baixa as referências (pasta do Pinterest e links), o Claude estrutura a ideia, gera as imagens, monta a sequência de frames, o Claude escreve o HTML com GSAP e revisa. Leva alguns minutos e roda em segundo plano; no fim entrega prévia, HTML e o prompt do Lovable. Use quando pedirem para CRIAR/FAZER/PRODUZIR um site ou landing page. Pergunte antes só o essencial (nome, objetivo); referências e estilo ajudam muito.",
+          "Produz o site completo com animação de scroll, de verdade: pesquisa referências sozinho (e usa a pasta do Pinterest/links se o dono mandar), estrutura a ideia, gera as imagens, monta a sequência de frames, escreve o HTML com GSAP e revisa. Leva alguns minutos e roda em segundo plano; no fim entrega prévia, HTML e o prompt do Lovable. Use quando pedirem para CRIAR/FAZER/PRODUZIR um site ou landing page. Pergunte antes só o essencial (nome e objetivo); não exija referências.",
         parameters: {
           type: "object",
           properties: {

@@ -228,7 +228,7 @@
     <label class="opt" id="wakeOpt" title="Diga “Jarvis” e a pergunta, com esta aba aberta (Chrome ou Edge)">Chamar por “Jarvis” <input type="checkbox" id="wakeToggle"></label>
     <label class="opt">Falar as respostas <input type="checkbox" id="speakToggle"></label>
     <label class="opt" title="Para a direita, mais alto (acima do volume do sistema, sem distorcer)">Volume da voz <input type="range" id="volume" min="0.5" max="3" step="0.1"></label>
-    <label class="opt" title="Toca baixinha enquanto ele fala (briefing e respostas). Diga “desliga a música” para parar.">Música enquanto fala <input type="checkbox" id="musicToggle"></label>
+    <label class="opt" title="Toca quando você fala com ele e fica baixinha enquanto ele responde. Diga “desliga a música” para parar.">Música do Jarvis <input type="checkbox" id="musicToggle"></label>
     <label class="opt" title="Volume da trilha do briefing">Volume da trilha <input type="range" id="musicVolume" min="0" max="1" step="0.05"></label>
     <div class="opt"><span id="musicName">Trilha: própria do Jarvis</span></div>
     <div class="actions" style="margin-top:4px">
@@ -1007,6 +1007,8 @@
     if (BRIEF_RE.test(plain)) return runBriefing({ force: spoken });
     setBusy(true);
     setMode('thinking');
+    // Falou com o Jarvis: a trilha entra enquanto ele pensa e fica por baixo da resposta.
+    if (!musicSkipOnce && musicToggle.checked && (speakToggle.checked || spoken)) startMusic();
     subtitle('Você: ' + trunc(message, 140));
     try {
       const res = await api('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, conversationId }) });
@@ -1035,6 +1037,7 @@
       showError(err.message || 'Sem conexão com o servidor.');
     } finally {
       musicSkipOnce = false;
+      musicAfterSpeech(); // erro ou resposta sem voz: a trilha some
       setBusy(false);
       if (mode !== 'error' && mode !== 'listening' && mode !== 'transcribing') restMode();
     }
@@ -1340,7 +1343,7 @@
     ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
     ['Notícias', '“notícias de marketing digital” · “o que saiu sobre Aracaju?”'],
     ['Guardião dos agentes', '“revise os rascunhos dos agentes” · “o SDR saiu da linha?” · regras em _jarvis/regras-dos-agentes.md'],
-    ['Estúdio de sites (Claude)', '“cria uma landing page com scroll animation para a clínica X, referências nesta pasta do Pinterest” · o Jarvis produz tudo (conceito, imagens, frames, HTML) e entrega prévia + prompt do Lovable'],
+    ['Estúdio de sites', '“cria uma landing page com scroll animation para a clínica X” · o Jarvis pesquisa as referências e produz tudo (conceito, imagens, frames, HTML); entrega prévia + prompt do Lovable'],
     ['Mentor técnico', '“como faço RLS nessa tabela?” · “olha o código do CRM e me explica esse erro” (lê o GitHub)'],
     ['Auditoria', '“o que você fez hoje?” · tudo o que o Jarvis consultou fica registrado'],
     ['Monitor da operação', 'botão MONITOR ou “como está a operação?”: semáforo de sistemas, riscos, dinheiro, entregas, comercial, CRM e lembretes'],
@@ -1620,7 +1623,7 @@
   // cada etapa e, no fim, entrega prévia, HTML e o prompt do Lovable.
   const studioJobs = new Map(); // id -> último estado
   const studioTimers = new Map();
-  const STUDIO_STEPS = ['Baixando as referências', 'Claude estruturando a ideia', 'Gerando as imagens', 'Montando os frames do scroll', 'Claude escrevendo o site', 'Revisando linha por linha'];
+  const STUDIO_STEPS = ['Pesquisando referências', 'Estruturando a ideia', 'Gerando as imagens', 'Montando os frames do scroll', 'Escrevendo o site', 'Revisando linha por linha'];
   let studioVideoFor = null;
   const openSafe = (url) => { if (/^https:\/\//.test(url)) window.open(url, '_blank', 'noopener,noreferrer'); };
   function studioCard(t) {
@@ -1630,6 +1633,7 @@
       alerta: failed && i === t.passo,
     }));
     if (t.conceito) itens.unshift({ titulo: 'Ideia: ' + t.conceito.titulo, detalhe: t.conceito.ideia });
+    if (t.pesquisa) itens.unshift({ titulo: 'Pesquisou: ' + t.pesquisa.termos.join(' · '), detalhe: Object.entries(t.pesquisa.fontes).map(([k, v]) => v + ' de ' + k).join(', ') + ' · motor: ' + (t.motor === 'claude' ? 'Claude' : 'OpenAI') });
     for (const a of t.avisos || []) itens.push({ titulo: 'Aviso', detalhe: a, alerta: true });
     for (const p of t.problemas_restantes || []) itens.push({ titulo: 'Pendência da revisão', detalhe: p, alerta: true });
     const botoes = [];

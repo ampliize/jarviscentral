@@ -120,6 +120,8 @@ function fakes() {
   const calls = { json: [] as unknown[], text: [] as string[] };
   const creative: CreativeModel = {
     json: async (opts) => {
+      // Primeiro pedido: termos de busca das referências.
+      if ((opts.schema as any).properties?.termos) return { termos: ["bright dental clinic", "smiling patient"] } as never;
       calls.json.push(opts.content);
       return structuredClone(concept) as never;
     },
@@ -143,6 +145,10 @@ function fakes() {
     fetchImpl: (async (url: URL | string) => {
       const u = String(url);
       if (u.endsWith(".rss")) return new Response(`<img src="https://i.pinimg.com/236x/a/b/c.jpg"><img src="https://i.pinimg.com/236x/d/e/f.jpg">`, { headers: { "content-type": "application/rss+xml" } });
+      if (u.startsWith("https://api.openverse.org/v1/images/")) {
+        const q = new URL(u).searchParams.get("q")!.replace(/\s+/g, "-");
+        return Response.json({ results: [{ thumbnail: `https://api.openverse.org/thumb/${q}-1.jpg` }, { thumbnail: `https://api.openverse.org/thumb/${q}-2.jpg` }] });
+      }
       return new Response(new Uint8Array([255, 216, 255]), { headers: { "content-type": "image/jpeg" } });
     }) as typeof fetch,
   };
@@ -181,7 +187,8 @@ test("estúdio: do briefing ao site pronto, com prévia isolada e prompt do Lova
   assert.match(trabalho.id, /^[a-f0-9]{24}$/);
   const t = await waitDone(app, trabalho.id);
   assert.equal(t.etapa, "pronto", t.erro);
-  assert.equal(t.referencias, 3, "2 pins + 1 link https (o http é ignorado)");
+  assert.equal(t.referencias, 7, "2 pins + 1 link https (o http é ignorado) + 4 pesquisadas no Openverse");
+  assert.deepEqual(t.pesquisa, { termos: ["bright dental clinic", "smiling patient"], fontes: { openverse: 4 } });
   assert.equal(t.imagens, 3, "sequência desktop + celular + 1 da seção");
   assert.deepEqual(t.frames, { quantidade: 12, origem: "imagem" });
   assert.deepEqual(t.problemas_restantes, []);
@@ -189,9 +196,9 @@ test("estúdio: do briefing ao site pronto, com prévia isolada e prompt do Lova
   assert.equal(t.previa_url, `https://jarvis.ampliize.com/estudio/${t.id}/`);
   assert.match(t.lovable_prompt, /FIDELIDADE TOTAL/);
   assert.ok(t.lovable_prompt.includes(`https://jarvis.ampliize.com/estudio/${t.id}/frames/d/`));
-  // O Claude recebeu as 3 referências como imagem.
+  // O motor recebeu as 7 referências como imagem.
   const content = f.calls.json[0] as Array<{ type: string }>;
-  assert.equal(content.filter((b) => b.type === "image").length, 3);
+  assert.equal(content.filter((b) => b.type === "image").length, 7);
   // O código usa a URL da imagem da seção com id saneado.
   assert.ok(f.calls.text[0]!.includes(`/estudio/${t.id}/assets/equipe-1-.webp`));
   // Nota na inbox do vault.
@@ -226,11 +233,11 @@ test("estúdio: do briefing ao site pronto, com prévia isolada e prompt do Lova
   assert.deepEqual(safeLinks([{ rotulo: "Acompanhar produção", url: `jarvis:estudio/${t.id}` }, { rotulo: "x", url: "jarvis:outra-coisa" }]).length, 1);
 });
 
-test("estúdio sem ANTHROPIC_API_KEY explica o que falta", async () => {
+test("estúdio sem motor (sem OpenAI nem Claude) explica o que falta", async () => {
   const app = await createApp({ config: loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN, DATA_DIR: await tmp() }), fetchImpl: (async () => new Response("{}", { status: 500 })) as typeof fetch });
   const res = await app.request("/api/estudio", { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ nome: "X", objetivo: "Y" }) });
   assert.equal(res.status, 400);
-  assert.match(((await res.json()) as any).error, /ANTHROPIC_API_KEY/);
+  assert.match(((await res.json()) as any).error, /OPENAI_API_KEY.*ANTHROPIC_API_KEY/);
 });
 
 test("revisão de código: origem só de requisição autenticada, etapa do erro e vídeo sem Content-Length", async () => {
@@ -253,7 +260,7 @@ test("revisão de código: origem só de requisição autenticada, etapa do erro
   const t = await waitDone(app, id);
   assert.equal(t.etapa, "erro");
   assert.equal(t.passo, 4, "parou em 'Claude escrevendo o site'");
-  assert.match(t.erro, /Claude escrevendo o site/);
+  assert.match(t.erro, /Escrevendo o site/);
   const job = JSON.parse(await fs.readFile(path.join(dataDir, "estudio", id, "job.json"), "utf8"));
   assert.equal(job.previa_url, `https://jarvis.ampliize.com/estudio/${id}/`);
 
@@ -272,4 +279,63 @@ test("revisão de código: origem só de requisição autenticada, etapa do erro
 
   // Download de verdade (sem fetch injetado) bloqueia IP interno antes de conectar.
   await assert.rejects(safeDownload("https://127.0.0.1/x.png", { maxBytes: 10 }), /interno/);
+});
+
+test("pesquisa de referências: Pexels com chave, Openverse sem chave, sem repetir", async () => {
+  const { searchImages, searchReferences } = await import("../src/studio/search.js");
+  const seen: Array<{ url: string; auth: string | null }> = [];
+  const fetchImpl = (async (url: URL | string, init?: RequestInit) => {
+    const u = String(url);
+    seen.push({ url: u, auth: new Headers(init?.headers).get("authorization") });
+    if (u.startsWith("https://api.pexels.com/")) return Response.json({ photos: [{ src: { large: "https://images.pexels.com/1.jpg" } }] });
+    if (u.startsWith("https://api.openverse.org/")) return Response.json({ results: [{ thumbnail: "https://api.openverse.org/t/1" }, { thumbnail: "https://api.openverse.org/t/2" }] });
+    return new Response("{}", { status: 404 });
+  }) as typeof fetch;
+  const deps = { fetchImpl, lookup: async () => ["93.184.216.34"] };
+  const r = await searchImages("luxury lot", 3, { pexels: "pk" }, deps);
+  assert.deepEqual(r.hits.map((h) => h.fonte), ["pexels", "openverse", "openverse"]);
+  assert.equal(seen.find((x) => x.url.includes("pexels"))!.auth, "pk");
+  assert.equal(seen.find((x) => x.url.includes("openverse"))!.auth, null, "Openverse sem chave");
+  const all = await searchReferences(["a", "b"], 4, {}, deps);
+  assert.deepEqual(all.hits.map((h) => h.url), ["https://api.openverse.org/t/1", "https://api.openverse.org/t/2"], "sem repetir entre termos");
+});
+
+test("motor OpenAI: imagens viram data URL, JSON estruturado e erros claros", async () => {
+  const { OpenAICreative, toOpenAIContent } = await import("../src/studio/openai-creative.js");
+  assert.deepEqual(toOpenAIContent([{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAA" } }, { type: "text", text: "oi" }]), [
+    { type: "image_url", image_url: { url: "data:image/png;base64,AAA", detail: "low" } },
+    { type: "text", text: "oi" },
+  ]);
+  let body: any = null;
+  const ok = new OpenAICreative("sk-test", "gpt-4.1", "https://api.openai.com/v1", (async (_u: unknown, init?: RequestInit) => {
+    body = JSON.parse(String(init?.body));
+    return Response.json({ choices: [{ message: { content: '{"termos":["a"]}' }, finish_reason: "stop" }] });
+  }) as typeof fetch);
+  const schema = { type: "object", properties: { termos: { type: "array", items: { type: "string" } } }, required: ["termos"], additionalProperties: false };
+  assert.deepEqual(await ok.json({ system: "s", content: "c", schema }), { termos: ["a"] });
+  assert.equal(body.response_format.type, "json_schema");
+  assert.equal(body.response_format.json_schema.strict, true);
+  assert.equal(body.max_completion_tokens, 32000);
+  const broke = new OpenAICreative("sk", "gpt-4.1", "https://api.openai.com/v1", (async () => Response.json({ error: { code: "insufficient_quota" } }, { status: 429 })) as typeof fetch);
+  await assert.rejects(broke.text({ system: "s", content: "c" }), /sem créditos/);
+  const cut = new OpenAICreative("sk", "gpt-4.1", "https://api.openai.com/v1", (async () => Response.json({ choices: [{ message: { content: "<html" }, finish_reason: "length" }] })) as typeof fetch);
+  await assert.rejects(cut.text({ system: "s", content: "c" }), /tamanho máximo/);
+});
+
+test("sem Claude, o estúdio começa com a OpenAI (motor openai)", async () => {
+  const app = await createApp({ config: loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN, DATA_DIR: await tmp(), OPENAI_API_KEY: "sk-test" }), fetchImpl: (async () => new Response("{}", { status: 500 })) as typeof fetch });
+  const res = await app.request("/api/estudio", { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ nome: "X", objetivo: "Y" }) });
+  assert.equal(res.status, 202);
+  assert.equal(((await res.json()) as any).trabalho.motor, "openai");
+});
+
+test("download seguro: a chave da API não segue redirecionamento para outro domínio", async () => {
+  const seen: Array<{ url: string; auth: string | null }> = [];
+  const fetchImpl = (async (url: URL | string, init?: RequestInit) => {
+    seen.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
+    if (String(url).startsWith("https://api.pexels.com/")) return new Response(null, { status: 302, headers: { location: "https://outro.com/x.json" } });
+    return Response.json({ ok: true });
+  }) as typeof fetch;
+  await safeDownload("https://api.pexels.com/v1/search?q=a", { maxBytes: 1000, accept: /json/, headers: { Authorization: "segredo" } }, { fetchImpl, lookup: async () => ["93.184.216.34"] });
+  assert.deepEqual(seen.map((x) => x.auth), ["segredo", null]);
 });
