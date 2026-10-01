@@ -24,11 +24,19 @@ export interface ToolDefinition {
 export interface ToolRunResult {
   ok: boolean;
   content: string;
+  /** Links que a ferramenta gerou para o dono abrir (ex.: criar o site no Lovable). */
+  links?: ToolLink[];
+}
+
+export interface ToolLink {
+  rotulo: string;
+  url: string;
 }
 
 export interface ChatResult {
   text: string;
   toolRuns: Array<{ name: string; ok: boolean }>;
+  links: ToolLink[];
   usage: { inputTokens: number; outputTokens: number };
   model: string;
 }
@@ -49,6 +57,9 @@ export interface ChatOptions {
   runTool: (name: string, args: unknown) => Promise<ToolRunResult>;
   maxIterations?: number;
   timeoutMs?: number;
+  /** Saída estruturada (ex.: { type: "json_schema", json_schema: {...} }), para chamadas sem ferramentas. */
+  responseFormat?: Record<string, unknown>;
+  maxTokens?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -62,8 +73,9 @@ async function request(opts: ChatOptions, model: string, messages: ChatMessage[]
     signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
     body: JSON.stringify({
       model,
-      max_completion_tokens: 4000,
+      max_completion_tokens: opts.maxTokens ?? 4000,
       messages,
+      ...(opts.responseFormat ? { response_format: opts.responseFormat } : {}),
       ...(opts.tools.length
         ? {
             tools: opts.tools.map((t) => ({
@@ -97,6 +109,7 @@ export async function chatWithTools(opts: ChatOptions): Promise<ChatResult> {
   const messages = [...opts.messages];
   const maxIterations = opts.maxIterations ?? 8;
   const toolRuns: ChatResult["toolRuns"] = [];
+  const links: ToolLink[] = [];
   const usage = { inputTokens: 0, outputTokens: 0 };
   let model = opts.model;
 
@@ -115,14 +128,14 @@ export async function chatWithTools(opts: ChatOptions): Promise<ChatResult> {
 
     const choice = payload.choices?.[0];
     const message = choice?.message ?? {};
-    if (message.refusal) return { text: String(message.refusal), toolRuns, usage, model };
+    if (message.refusal) return { text: String(message.refusal), toolRuns, links, usage, model };
 
     const calls: ToolCall[] = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     if (!calls.length) {
       if (choice?.finish_reason === "length") {
-        return { text: `${message.content ?? ""}\n\n(resposta cortada por tamanho)`.trim(), toolRuns, usage, model };
+        return { text: `${message.content ?? ""}\n\n(resposta cortada por tamanho)`.trim(), toolRuns, links, usage, model };
       }
-      return { text: String(message.content ?? ""), toolRuns, usage, model };
+      return { text: String(message.content ?? ""), toolRuns, links, usage, model };
     }
 
     messages.push({ role: "assistant", content: message.content ?? null, tool_calls: calls });
@@ -135,6 +148,7 @@ export async function chatWithTools(opts: ChatOptions): Promise<ChatResult> {
         result = { ok: false, content: JSON.stringify({ erro: err instanceof Error ? err.message : "falha na ferramenta" }) };
       }
       toolRuns.push({ name: call.function.name, ok: result.ok });
+      if (result.links?.length) links.push(...result.links);
       messages.push({ role: "tool", tool_call_id: call.id, content: result.content });
     }
   }
@@ -142,6 +156,7 @@ export async function chatWithTools(opts: ChatOptions): Promise<ChatResult> {
   return {
     text: "Precisei de consultas demais para responder. Pode reformular a pergunta de um jeito mais específico?",
     toolRuns,
+    links,
     usage,
     model,
   };

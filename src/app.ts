@@ -24,6 +24,11 @@ import { WeatherService } from "./skills/weather.js";
 import { SystemMonitor, type MonitorOptions } from "./skills/monitor.js";
 import { Playbooks } from "./skills/playbooks.js";
 import { BriefingMusic, MAX_MUSIC_BYTES, musicType } from "./skills/music.js";
+import { AuditLog, auditConnector, withAudit } from "./skills/audit.js";
+import { AgentGuard, guardConnector } from "./skills/guard.js";
+import { sitesConnector } from "./skills/sites.js";
+import { githubConnector } from "./connectors/github.js";
+import type { ToolLink } from "./llm/openai.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 120;
@@ -43,6 +48,21 @@ export interface AppDeps {
   /** Testes: DNS, certificado e relógio falsos para o monitor de sistemas. */
   monitorOptions?: Omit<MonitorOptions, "fetchImpl">;
 }
+
+/** Só links para destinos conhecidos viram botão no HUD. */
+const LINK_HOSTS = ["lovable.dev", "github.com"];
+export const safeLinks = (links: ToolLink[] = []) =>
+  links
+    .filter((l) => {
+      try {
+        const u = new URL(l.url);
+        return u.protocol === "https:" && LINK_HOSTS.includes(u.hostname);
+      } catch {
+        return false;
+      }
+    })
+    .slice(0, 4)
+    .map((l) => ({ rotulo: String(l.rotulo).slice(0, 40), url: l.url }));
 
 /** Converte erros da OpenAI em respostas claras para a interface. */
 function aiErrorResponse(c: Context, err: unknown) {
@@ -69,12 +89,24 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     timeZone: config.timeZone,
     monitor: new SystemMonitor(brain.root, { fetchImpl, ...monitorOptions }),
     alerts: new AlertBook(brain.root),
+    guard: new AgentGuard({ config, brainRoot: brain.root, dataDir: config.dataDir, fetchImpl, context: () => brain.context() }),
   };
+  const audit = new AuditLog(config.dataDir);
   skills.monitor!.start();
   const playbooks = new Playbooks(brain.root);
   const music = new BriefingMusic(config.dataDir);
   const getOperation = async () => buildOperation(await gatherOperation(config, brain, fetchImpl, new Date(), skills));
-  const connectors = buildConnectors(config, brain, fetchImpl, skills, playbooks, [operationConnector(getOperation, skills.alerts!)]);
+  // Toda ferramenta usada fica registrada na auditoria (o que, com quais parâmetros, resultado).
+  const connectors = withAudit(
+    buildConnectors(config, brain, fetchImpl, skills, playbooks, [
+      operationConnector(getOperation, skills.alerts!),
+      guardConnector(skills.guard!),
+      sitesConnector(config, brain, fetchImpl),
+      ...(config.github ? [githubConnector(config.github, fetchImpl)] : []),
+      auditConnector(audit),
+    ]),
+    audit,
+  );
 
   // Cérebro no Obsidian: clona/sincroniza em segundo plano para não travar a subida.
   if (config.brainGit) {
@@ -299,6 +331,24 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     }
   });
 
+  // Auditoria: tudo o que o Jarvis consultou ou fez.
+  app.get("/api/auditoria", async (c) => {
+    const dias = Math.min(30, Math.max(1, Number(c.req.query("dias")) || 1));
+    return c.json({ auditoria: await audit.recent(dias, 300) });
+  });
+
+  // Guardião dos agentes de IA: revisa os rascunhos do CRM (só aponta).
+  app.get("/api/agentes/revisoes", async (c) => c.json({ revisoes: await skills.guard!.stored() }));
+  app.post("/api/agentes/revisar", async (c) => {
+    if (!config.ampliize) return c.json({ error: "CRM não conectado." }, 503);
+    try {
+      return c.json(await skills.guard!.reviewDrafts());
+    } catch (err) {
+      console.error("guardião falhou:", err);
+      return c.json({ error: err instanceof Error ? err.message : "Falha ao revisar os agentes." }, 502);
+    }
+  });
+
   app.get("/api/skills", async (c) => c.json({ skills: (await playbooks.list()).map((p) => ({ id: p.id, nome: p.nome, quando_usar: p.quando })) }));
 
   app.get("/api/connectors", (c) =>
@@ -329,7 +379,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       const at = new Date().toISOString();
       await store.append(conversationId, { role: "user", content: question, at });
       await store.append(conversationId, { role: "assistant", content: result.text, at: new Date().toISOString(), tools: result.toolRuns });
-      return c.json({ conversationId, answer: result.text, tools: result.toolRuns, usage: result.usage, model: result.model });
+      return c.json({ conversationId, answer: result.text, tools: result.toolRuns, links: safeLinks(result.links), usage: result.usage, model: result.model });
     } catch (err) {
       console.error("chat falhou:", err);
       return aiErrorResponse(c, err);

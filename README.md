@@ -15,7 +15,7 @@ cada um, na hora, pelo endpoint de integração deles.
                 └────────────────────────────────────────────────────────────────┘
 ```
 
-## O que ele faz hoje (v0.5)
+## O que ele faz hoje (v0.7)
 
 - **HUD com o camaleão da Ampliize** em `/`: um holograma do camaleão do logo
   que reage à voz (o maxilar abre quando ele fala, pisca, muda de cor quando
@@ -185,6 +185,51 @@ chama `skill_abrir` e segue os passos com as ferramentas que tem. Editou no
 Obsidian ou no GitHub, vale na próxima pergunta (cache de 30 s). As regras de
 segurança do Jarvis continuam acima de qualquer skill.
 
+## Braço direito (v0.7)
+
+### Guardião dos agentes de IA
+Os agentes do CRM (SDR, Closer e Conteúdo) só geram rascunhos. Antes de alguém
+usar um rascunho, o Jarvis revisa campo por campo em duas camadas:
+
+1. **Regras fixas**, que valem sempre:
+   - placeholder esquecido (`[nome]`, `{{...}}`);
+   - preço no SDR ou no Conteúdo;
+   - promessa de resultado;
+   - CPF, CNPJ ou cartão no texto;
+   - link fora da lista permitida;
+   - mensagem longa demais para WhatsApp;
+   - emojis demais;
+   - erros de digitação: espaço duplo, espaço antes da pontuação, pontuação ou palavra repetida.
+2. **Revisão por IA** contra `_jarvis/regras-dos-agentes.md` e o contexto do vault: fato inventado, tom, oferta fora do catálogo e personalização.
+
+Cada rascunho recebe um veredito: **aprovado**, **ajustar** ou **bloquear**. Junto vêm o trecho exato e a correção pronta. O Jarvis só aponta: não altera nem envia nada no CRM. A revisão fica guardada e só é refeita se o texto ou as regras mudarem. No **MONITOR**, a área "Agentes de IA" fica vermelha quando há rascunho bloqueado.
+
+Peça com: "revise os rascunhos dos agentes" ou "o SDR saiu da linha?".
+
+As regras ficam em `_jarvis/regras-dos-agentes.md`, com seções `## Proibido` (bloqueia), `## Evitar` (pede ajuste) e `## Links permitidos`. Um item entre barras, como `/desconto de \d+%/`, vale como expressão regular.
+
+Depende do recurso `agent_runs` da integration-api do CRM, que é somente leitura.
+
+### Criar site com animação de scroll (Lovable)
+Peça com: "cria uma landing page com scroll animation para a clínica X".
+
+O Jarvis monta o roteiro do site:
+- seções e textos prontos;
+- a animação de cada seção (GSAP + ScrollTrigger + Lenis: pin, scrub, parallax e revelação de texto);
+- identidade visual e SEO;
+- um bloco técnico fixo: `prefers-reduced-motion`, versão mobile, performance, captura de UTM e botão de WhatsApp.
+
+A resposta vem com o botão **Criar no Lovable**, um link do recurso *Build with URL* do Lovable. O site só é criado quando você abre esse link na sua conta, então o Jarvis não gasta crédito sozinho. O roteiro fica na inbox do vault.
+
+### Mentor técnico (GitHub, somente leitura)
+Com `GITHUB_TOKEN`, o Jarvis lê o código dos nossos repositórios: lista os repositórios, lê arquivos, busca no código e mostra os PRs e commits recentes. Com isso ele explica erros, orienta mudanças citando arquivo e trecho, aponta riscos de segurança e entrega o próximo passo, inclusive um prompt pronto para o Claude Code ou o Lovable.
+- Use um token *fine-grained* só de leitura: *Contents*, *Metadata*, *Pull requests* e *Issues* em **Read-only**.
+- `GITHUB_OWNERS` limita quais donos de repositório ele pode ler. O padrão é `ampliize`.
+- O token só é enviado para `api.github.com`.
+
+### Auditoria
+Toda ferramenta que o Jarvis usa fica registrada em `DATA_DIR/auditoria/AAAA-MM.jsonl`: o que usou, com quais parâmetros (resumidos, sem segredos), se deu certo e quanto tempo levou. Pergunte "o que você fez hoje?" ou consulte `GET /api/auditoria?dias=7`.
+
 ## Monitor de sistemas
 
 Uma linha por sistema em `_jarvis/sistemas.md`:
@@ -298,6 +343,9 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | POST | `/api/voice/transcribe` | Corpo = áudio (webm/ogg/mp4/m4a/mp3/wav, até 10 MB) → `{ text }` |
 | POST | `/api/voice/speak` | `{ text }` → `audio/mpeg` |
 | POST | `/api/brain/sync` | Puxa agora o que mudou no vault |
+| GET | `/api/auditoria?dias=1` | Tudo o que o Jarvis consultou/fez (ferramenta, parâmetros resumidos, ok, ms) |
+| POST | `/api/agentes/revisar` | Guardião: revisa os rascunhos pendentes dos agentes de IA do CRM |
+| GET | `/api/agentes/revisoes` | Revisões guardadas (veredito, problemas, correções) |
 
 Para um frontend em outro domínio, libere a origem em `JARVIS_CORS_ORIGINS`.
 

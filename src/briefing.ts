@@ -3,6 +3,7 @@ import { callResource, ResourceApiError } from "./connectors/resourceApi.js";
 import type { Brain } from "./memory/brain.js";
 import type { Skills } from "./skills/index.js";
 import type { Alert } from "./skills/alerts.js";
+import type { AgentRun, Review } from "./skills/guard.js";
 import type { SystemCheck } from "./skills/monitor.js";
 import type { Reminder } from "./skills/reminders.js";
 import type { Weather } from "./skills/weather.js";
@@ -341,6 +342,8 @@ export interface BuildInput {
   sistemas?: SystemCheck[] | null;
   /** Riscos em aberto (_jarvis/alertas.md). */
   alertas?: Alert[];
+  /** Rascunhos dos agentes de IA (null = não deu para ler) e as revisões do guardião. */
+  agentes?: { rascunhos: AgentRun[] | null; revisoes: Review[] };
   ownerName: string;
   timeZone: string;
   now?: Date;
@@ -431,7 +434,11 @@ export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: 
   const systemsStatus = skills?.monitor
     ? Promise.race([skills.monitor.status(10 * 60 * 1000), new Promise<null>((r) => setTimeout(() => r(null), 6_000).unref())]).catch(() => null)
     : Promise.resolve(null);
-  const [crm, clima, lembretes, pendencias, inbox, sistemas, alertas] = await Promise.all([
+  const guard = skills?.guard;
+  const agentes = guard && config.ampliize
+    ? Promise.all([guard.drafts({ dias: 7 }).catch(() => null), guard.stored().catch(() => [])]).then(([rascunhos, revisoes]) => ({ rascunhos, revisoes }))
+    : Promise.resolve(undefined);
+  const [crm, clima, lembretes, pendencias, inbox, sistemas, alertas, agentesData] = await Promise.all([
     config.ampliize
       ? (callResource({ ...config.ampliize, fetchImpl, timeoutMs: 15_000 }, "briefing") as Promise<CrmBriefing>).catch((err) => {
           crmError = err instanceof ResourceApiError ? err.message : "falha na consulta";
@@ -444,6 +451,7 @@ export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: 
     brain.inboxCount(),
     systemsStatus,
     skills?.alerts ? skills.alerts.open().catch(() => []) : Promise.resolve([]),
+    agentes,
   ]);
   return {
     crm,
@@ -455,6 +463,7 @@ export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: 
     lembretes,
     sistemas,
     alertas,
+    agentes: agentesData,
     ownerName: config.ownerName,
     timeZone: config.timeZone,
     now,
@@ -562,6 +571,28 @@ export function buildOperation(input: BuildInput): Operation {
       estado: crm.sistema.erros_abertos ? "atencao" : "ok",
       resumo: crm.sistema.erros_abertos ? `${plural(crm.sistema.erros_abertos, "erro aberto", "erros abertos")} no Monitor` : "sem erros abertos",
       itens: [],
+    });
+  }
+
+  // Agentes de IA: rascunhos pendentes e o que o guardião achou deles.
+  const ag = input.agentes;
+  if (!ag || !ag.rascunhos) {
+    areas.push({ id: "agentes", nome: "Agentes de IA", estado: "sem_dados", resumo: !input.crmConfigured ? "CRM não conectado" : "não consegui ler os rascunhos dos agentes", itens: [] });
+  } else {
+    const byId = new Map(ag.revisoes.map((r) => [r.id, r]));
+    const AG: Record<string, string> = { sdr: "SDR", closer: "Closer", content: "Conteúdo" };
+    const reviewed = ag.rascunhos.map((d) => ({ d, r: byId.get(d.id) }));
+    const blocked = reviewed.filter((x) => x.r?.veredito === "bloquear");
+    const adjust = reviewed.filter((x) => x.r?.veredito === "ajustar");
+    const pending = reviewed.filter((x) => !x.r);
+    areas.push({
+      id: "agentes",
+      nome: "Agentes de IA",
+      estado: blocked.length ? "critico" : adjust.length || pending.length ? "atencao" : "ok",
+      resumo: ag.rascunhos.length
+        ? `${plural(ag.rascunhos.length, "rascunho pendente", "rascunhos pendentes")} · ${blocked.length} bloqueado(s) · ${adjust.length} para ajustar · ${pending.length} sem revisão`
+        : "nenhum rascunho pendente",
+      itens: [...blocked, ...adjust].map(({ d, r }) => `${r!.veredito === "bloquear" ? "🔴" : "🟡"} ${AG[d.agente] ?? d.agente}${d.lead?.nome ? ` · ${d.lead.nome}` : ""}: ${r!.resumo}`),
     });
   }
 

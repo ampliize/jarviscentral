@@ -2,6 +2,7 @@ import { toolResult, type Connector } from "../connectors/types.js";
 import { NewsError, type NewsService } from "./news.js";
 import { parseWhen, ReminderError, type ReminderStore } from "./reminders.js";
 import type { AlertBook } from "./alerts.js";
+import type { AgentGuard } from "./guard.js";
 import type { SystemMonitor } from "./monitor.js";
 import { WeatherError, type WeatherService } from "./weather.js";
 
@@ -16,6 +17,8 @@ export interface Skills {
   monitor?: SystemMonitor;
   /** Riscos registrados (_jarvis/alertas.md). */
   alerts?: AlertBook;
+  /** Guardião dos agentes de IA do CRM. */
+  guard?: AgentGuard;
 }
 
 const obj = (properties: Record<string, unknown>) => ({
