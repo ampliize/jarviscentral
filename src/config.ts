@@ -55,6 +55,11 @@ export interface Config {
   projects: ProjectConfig[];
   /** Claude para o estúdio de sites (ANTHROPIC_API_KEY). */
   anthropicApiKey: string;
+  /** Bancos de imagem para o Jarvis pesquisar referências (chaves gratuitas; o Openverse funciona sem chave). */
+  pexelsApiKey: string;
+  unsplashAccessKey: string;
+  /** Modelo da OpenAI que cria os sites enquanto o Claude não está contratado (STUDIO_OPENAI_MODEL). */
+  studioOpenAIModel: string;
   /** Endereço público do Jarvis (ex.: https://jarvis.ampliize.com), usado nas URLs dos sites do estúdio. */
   publicUrl: string;
   /** GitHub somente leitura para o modo técnico (GITHUB_TOKEN + GITHUB_OWNERS). */
@@ -149,6 +154,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ampliize: ampliizeUrl && ampliizeKey ? { url: ampliizeUrl, key: ampliizeKey } : null,
     projects: parseProjects(env.JARVIS_PROJECTS),
     anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() ?? "",
+    pexelsApiKey: env.PEXELS_API_KEY?.trim() ?? "",
+    unsplashAccessKey: env.UNSPLASH_ACCESS_KEY?.trim() ?? "",
+    studioOpenAIModel: env.STUDIO_OPENAI_MODEL?.trim() || "gpt-4.1",
     publicUrl: /^https:\/\/[^\s/]+$/.test(env.JARVIS_PUBLIC_URL?.trim().replace(/\/$/, "") ?? "") ? env.JARVIS_PUBLIC_URL!.trim().replace(/\/$/, "") : "",
     github: env.GITHUB_TOKEN?.trim()
       ? {

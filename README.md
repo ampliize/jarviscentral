@@ -39,7 +39,7 @@ cada um, na hora, pelo endpoint de integração deles.
   `_jarvis/sistemas.md` (no ar, tempo de resposta, validade do HTTPS, 24 h de
   disponibilidade) e avisa no "bom dia".
 - **Volume da voz** ajustável (até 3×, com compressor para não distorcer).
-- **Música enquanto fala**: a trilha toca baixinha sempre que o Jarvis fala (briefing e respostas) e some quando ele termina; no briefing ela abre em volume cheio. Diga "desliga a música" para parar, "pode tocar a música" para voltar, ou "... sem música" para uma resposta só. Em GERENCIAR HUD → *Escolher música* você envia o seu arquivo (mp3, m4a, ogg ou wav, até 15 MB; fica no volume `/data`). Sem arquivo, toca uma vinheta própria. Dá para desligar ou mudar o volume ali.
+- **Música do Jarvis**: quando você fala com ele, a trilha entra (cheia enquanto ele pensa), fica baixinha enquanto ele responde e some quando ele termina; no briefing ela abre em volume cheio. Diga "desliga a música" para parar, "pode tocar a música" para voltar, ou "... sem música" para uma resposta só. Em GERENCIAR HUD → *Escolher música* você envia o seu arquivo (mp3, m4a, ogg ou wav, até 15 MB; fica no volume `/data`). Sem arquivo, toca uma vinheta própria. Dá para desligar ou mudar o volume ali.
 - **Chat** também pela API `POST /api/chat`.
 - **Ampliize CRM** (somente leitura): panorama da operação, clientes, ficha
   360º de um cliente, projetos, linha do tempo de atualizações, melhorias de
@@ -210,15 +210,22 @@ As regras ficam em `_jarvis/regras-dos-agentes.md`, com seções `## Proibido` (
 
 Depende do recurso `agent_runs` da integration-api do CRM, que é somente leitura.
 
-### Estúdio de sites (Jarvis + Claude)
-Diga, por exemplo: "cria uma landing page com scroll animation para a clínica X, as referências estão nesta pasta do Pinterest". O Jarvis produz o site inteiro no mesmo fluxo da landing da Nova Esplanada, em segundo plano. Leva alguns minutos e um site por vez.
+### Estúdio de sites
+Diga, por exemplo: "cria uma landing page com scroll animation para a clínica X". O Jarvis produz o site inteiro no mesmo fluxo da landing da Nova Esplanada, em segundo plano. Leva alguns minutos e um site por vez.
 
-1. **Referências.** Baixa os pins de uma pasta **pública** do Pinterest (pelo feed RSS da pasta) e as imagens enviadas por link, até 12. Usa só https, endereços públicos e no máximo 4 MB por imagem. As referências servem só para o Claude entender o estilo e nunca vão para o site.
-2. **Conceito.** O Claude (`claude-opus-5-5`) olha as referências e devolve a estrutura do site: a ideia, a paleta, as fontes, a cena da sequência de frames, os prompts de imagem e de vídeo, as seções com textos e animações e o SEO.
+**Motor:** quem estrutura a ideia e escreve o código é a **OpenAI** (`STUDIO_OPENAI_MODEL`, padrão `gpt-4.1`), com a mesma chave que o Jarvis já usa. Quando a `ANTHROPIC_API_KEY` for colocada, o estúdio passa a usar o **Claude** automaticamente, sem mudar mais nada.
+
+1. **Referências.** O Jarvis **pesquisa sozinho**: o motor escolhe 3 ou 4 termos de busca e ele busca as fotos.
+   - **Openverse:** gratuito e sem chave; é sempre consultado.
+   - **Pexels e Unsplash:** chaves gratuitas em `PEXELS_API_KEY` e `UNSPLASH_ACCESS_KEY`; fotos melhores.
+   - **Pinterest:** ele não pesquisa no Pinterest, porque não há acesso público para busca e as regras do site proíbem raspar. Se você mandar uma pasta **pública** ou links, eles também entram.
+
+   São até 12 imagens, baixadas só por https, de endereços públicos, com no máximo 4 MB cada. As referências servem só para o motor entender o estilo e nunca vão para o site.
+2. **Conceito.** O motor (Claude `claude-opus-5-5` ou OpenAI) olha as referências e devolve a estrutura do site: a ideia, a paleta, as fontes, a cena da sequência de frames, os prompts de imagem e de vídeo, as seções com textos e animações e o SEO.
 3. **Imagens.** São geradas pela OpenAI (`gpt-image-1`, em WebP): o início da sequência no desktop e no celular, mais até 4 imagens das seções.
 4. **Frames.** O ffmpeg monta a sequência que anda com o scroll: 1920x1080 no desktop e 720x1280 no celular. Sem vídeo, faz uma aproximação suave sobre a imagem principal. Com o vídeo enviado no card, tira 128 frames do vídeo. O vídeo pode ser gerado no Google Flow com o prompt que o Claude escreveu.
-5. **Código.** O Claude escreve o HTML completo: GSAP + ScrollTrigger, canvas com os frames, `prefers-reduced-motion`, versão para celular, SEO, WhatsApp e UTM.
-6. **Revisão.** Uma conferência automática olha doctype, viewport, title, description, h1, GSAP, frames, imagens, placeholders e lorem ipsum. O que falhar volta para o Claude corrigir.
+5. **Código.** O motor escreve o HTML completo: GSAP + ScrollTrigger, canvas com os frames, `prefers-reduced-motion`, versão para celular, SEO, WhatsApp e UTM.
+6. **Revisão.** Uma conferência automática olha doctype, viewport, title, description, h1, GSAP, frames, imagens, placeholders e lorem ipsum. O que falhar volta para o motor corrigir.
 7. **Entrega.** O card do HUD traz **Ver prévia**, **Baixar HTML**, **Copiar prompt do Lovable** e **Abrir Lovable**. O prompt é o mesmo formato da Nova Esplanada: portar o HTML aprovado com fidelidade total. Uma nota com tudo vai para a inbox do vault.
 
 Detalhes técnicos:
@@ -226,7 +233,10 @@ Detalhes técnicos:
 - Os frames e as imagens podem ser carregados por outros domínios. Por isso o site no Lovable usa as URLs do Jarvis; defina `JARVIS_PUBLIC_URL`.
 
 Variáveis do estúdio:
-- `ANTHROPIC_API_KEY`: obrigatória.
+- `OPENAI_API_KEY`: já usada pelo Jarvis; é o motor padrão e gera as imagens.
+- `ANTHROPIC_API_KEY`: opcional; quando existir, o motor passa a ser o Claude.
+- `PEXELS_API_KEY` e `UNSPLASH_ACCESS_KEY`: opcionais e gratuitas; melhoram a pesquisa de referências.
+- `STUDIO_OPENAI_MODEL`: opcional; o padrão é `gpt-4.1`.
 - `JARVIS_PUBLIC_URL`: por exemplo, `https://jarvis.ampliize.com`.
 - `OPENAI_IMAGE_MODEL`: opcional; o padrão é `gpt-image-1`.
 
