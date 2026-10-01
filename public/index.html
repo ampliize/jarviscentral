@@ -903,7 +903,15 @@
       conversationId = data.conversationId;
       sessionStorage.setItem('jarvis_conversation', conversationId);
       const tools = (data.tools || []).map((t) => t.name.replace(/^ampliize_|^memoria_/, '') + (t.ok ? '' : ' (falhou)'));
-      showCard({ rotulo: 'RESPOSTA', titulo: trunc(message, 90), texto: data.answer, rodape: tools.length ? 'consultou: ' + tools.join(', ') : '' });
+      // Links das ferramentas (ex.: "Criar no Lovable") viram botões; só destinos conhecidos.
+      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)));
+      showCard({
+        rotulo: 'RESPOSTA',
+        titulo: trunc(message, 90),
+        texto: data.answer,
+        rodape: tools.length ? 'consultou: ' + tools.join(', ') : '',
+        botoes: links.map((l) => ({ texto: l.rotulo, fn: () => window.open(l.url, '_blank', 'noopener,noreferrer') })),
+      });
       setBusy(false); // resposta chegou: já dá para interromper a fala com o mic
       if (await say(data.answer, { force: spoken })) subtitle('');
     } catch (err) {
@@ -1213,6 +1221,10 @@
     ['Lembretes', '“me lembra de cobrar a Ruddar amanhã às 9h” · “quais meus lembretes?”'],
     ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
     ['Notícias', '“notícias de marketing digital” · “o que saiu sobre Aracaju?”'],
+    ['Guardião dos agentes', '“revise os rascunhos dos agentes” · “o SDR saiu da linha?” · regras em _jarvis/regras-dos-agentes.md'],
+    ['Criar site (Lovable)', '“cria uma landing page com scroll animation para a clínica X” · toque em “Criar no Lovable”'],
+    ['Mentor técnico', '“como faço RLS nessa tabela?” · “olha o código do CRM e me explica esse erro” (lê o GitHub)'],
+    ['Auditoria', '“o que você fez hoje?” · tudo o que o Jarvis consultou fica registrado'],
     ['Monitor da operação', 'botão MONITOR ou “como está a operação?”: semáforo de sistemas, riscos, dinheiro, entregas, comercial, CRM e lembretes'],
     ['Riscos registrados', '“quais riscos temos?” · lista em _jarvis/alertas.md (marque [x] quando resolver)'],
     ['Sistemas dos clientes', '“como estão os sistemas?” · testa site/API, tempo de resposta e HTTPS (lista em _jarvis/sistemas.md)'],

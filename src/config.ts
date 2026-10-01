@@ -53,6 +53,18 @@ export interface Config {
   corsOrigins: string[];
   ampliize: { url: string; key: string } | null;
   projects: ProjectConfig[];
+  /** GitHub somente leitura para o modo técnico (GITHUB_TOKEN + GITHUB_OWNERS). */
+  github: { token: string; owners: string[] } | null;
+}
+
+/** Donos de repositório que o Jarvis pode ler (padrão: ampliize). */
+function githubOwners(raw: string | undefined): string[] {
+  const list = (raw ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => /^[a-z0-9-]{1,39}$/.test(s))
+    .slice(0, 10);
+  return list.length ? list : ["ampliize"];
 }
 
 const PROJECT_ID_RE = /^[a-z][a-z0-9_]{1,30}$/;
@@ -132,5 +144,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .filter(Boolean),
     ampliize: ampliizeUrl && ampliizeKey ? { url: ampliizeUrl, key: ampliizeKey } : null,
     projects: parseProjects(env.JARVIS_PROJECTS),
+    github: env.GITHUB_TOKEN?.trim()
+      ? {
+          token: env.GITHUB_TOKEN.trim(),
+          owners: githubOwners(env.GITHUB_OWNERS),
+        }
+      : null,
   };
 }

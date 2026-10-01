@@ -7,12 +7,12 @@ export function operationConnector(getOperation: () => Promise<Operation>, alert
   return {
     id: "operacao",
     name: "Monitor da operação",
-    description: "Semáforo da operação (sistemas, riscos, financeiro, entregas, comercial, erros do CRM, lembretes) e riscos registrados em _jarvis/alertas.md.",
+    description: "Semáforo da operação (sistemas, riscos, financeiro, entregas, comercial, erros do CRM, agentes de IA, lembretes) e riscos registrados em _jarvis/alertas.md.",
     tools: [
       {
         name: "operacao_status",
         description:
-          "Semáforo da operação inteira, área por área (ok, atenção, crítico): sistemas no ar, riscos registrados, cobranças vencidas, entregas atrasadas, follow-ups, erros do CRM e lembretes atrasados. Use PRIMEIRO em 'como está a operação?', 'o que preciso ver?', 'tem algo pegando fogo?'.",
+          "Semáforo da operação inteira, área por área (ok, atenção, crítico): sistemas no ar, riscos registrados, cobranças vencidas, entregas atrasadas, follow-ups, erros do CRM, rascunhos dos agentes de IA barrados pelo guardião e lembretes atrasados. Use PRIMEIRO em 'como está a operação?', 'o que preciso ver?', 'tem algo pegando fogo?'.",
         parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
         run: async () => toolResult(true, await getOperation()),
       },
