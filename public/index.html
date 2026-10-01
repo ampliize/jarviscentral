@@ -228,9 +228,9 @@
     <label class="opt" id="wakeOpt" title="Diga “Jarvis” e a pergunta, com esta aba aberta (Chrome ou Edge)">Chamar por “Jarvis” <input type="checkbox" id="wakeToggle"></label>
     <label class="opt">Falar as respostas <input type="checkbox" id="speakToggle"></label>
     <label class="opt" title="Para a direita, mais alto (acima do volume do sistema, sem distorcer)">Volume da voz <input type="range" id="volume" min="0.5" max="3" step="0.1"></label>
-    <label class="opt" title="Toca quando o briefing começa e abaixa enquanto ele fala">Trilha no briefing <input type="checkbox" id="musicToggle"></label>
+    <label class="opt" title="Toca baixinha enquanto ele fala (briefing e respostas). Diga “desliga a música” para parar.">Música enquanto fala <input type="checkbox" id="musicToggle"></label>
     <label class="opt" title="Volume da trilha do briefing">Volume da trilha <input type="range" id="musicVolume" min="0" max="1" step="0.05"></label>
-    <div class="opt"><span id="musicName">Trilha: vinheta padrão</span></div>
+    <div class="opt"><span id="musicName">Trilha: própria do Jarvis</span></div>
     <div class="actions" style="margin-top:4px">
       <button class="btn" type="button" id="musicPick" title="mp3, m4a, ogg ou wav, até 15 MB">Escolher música</button>
       <button class="btn" type="button" id="musicTest">Testar</button>
@@ -243,6 +243,8 @@
       <button class="btn" type="button" id="cfg">Configuração</button>
       <button class="btn" type="button" id="nova">Nova conversa</button>
       <button class="btn" type="button" id="skillsBtn">Habilidades</button>
+      <button class="btn" type="button" id="studioBtn">Sites (estúdio)</button>
+      <input type="file" id="studioVideo" accept="video/mp4,video/webm,video/quicktime" hidden>
       <button class="btn" type="button" id="sair">Sair</button>
     </div>
   </div>
@@ -373,8 +375,8 @@
   const dockItems = [];
   let holoLayout = 'center';
   function showCard(c) {
-    if (focusData && focusData !== c && focusData.tipo !== 'loading') pushDock(focusData);
-    const i = dockItems.indexOf(c);
+    if (focusData && focusData !== c && !(c.id && focusData.id === c.id) && focusData.tipo !== 'loading') pushDock(focusData);
+    const i = dockItems.findIndex((x) => x === c || (c.id && x.id === c.id));
     if (i >= 0) { dockItems.splice(i, 1); renderDock(); }
     focusData = c;
     $('focusBody').replaceChildren(buildCard(c));
@@ -383,7 +385,8 @@
     holoLayout = 'top';
   }
   function pushDock(c) {
-    const i = dockItems.indexOf(c);
+    // Cards com id (ex.: andamento de um site) substituem a versão anterior.
+    const i = dockItems.findIndex((x) => x === c || (c.id && x.id === c.id));
     if (i >= 0) dockItems.splice(i, 1);
     dockItems.unshift(c);
     if (dockItems.length > 12) dockItems.pop();
@@ -467,9 +470,11 @@
     for (let i = 0; i < outBuf.length; i++) { const x = (outBuf[i] - 128) / 128; s += x * x; }
     return Math.sqrt(s / outBuf.length);
   };
-  // ================= trilha do briefing =================
-  // Abre o briefing em volume cheio, abaixa enquanto ele fala e some no fim.
-  // Usa a música que o dono enviou (GERENCIAR HUD); sem ela, uma vinheta gerada aqui.
+  // ================= trilha =================
+  // Toca sempre que o Jarvis fala (briefing e qualquer resposta), baixinha sob a voz,
+  // e some quando ele termina. No briefing abre em volume cheio por alguns segundos.
+  // Usa a música que o dono enviou (GERENCIAR HUD); sem ela, uma trilha própria gerada aqui.
+  // "desliga a música" desliga; "pode tocar a música" liga; "... sem música" vale só para aquela resposta.
   const musicToggle = $('musicToggle'), musicVolume = $('musicVolume');
   musicToggle.checked = store.get('jarvis_music', '1') === '1';
   musicVolume.value = store.get('jarvis_music_volume', '0.7');
@@ -477,8 +482,11 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const musicEl = new Audio();
   musicEl.preload = 'auto';
+  musicEl.loop = true;
   let musicBus = null, musicUrl = null, musicInfo, synth = null, musicSeq = 0, musicDucked = false, musicStartedAt = 0;
+  let musicRelease = null, musicSkipOnce = false;
   const musicLevel = () => Math.min(1, Number(musicVolume.value) || 0);
+  const musicPlaying = () => !musicEl.paused || !!synth;
   const ensureMusicOut = () => {
     ensureOut();
     if (musicBus || !outCtx) return;
@@ -498,70 +506,124 @@
   };
   const stopSynth = () => {
     if (!synth) return;
+    clearInterval(synth.timer);
     for (const n of synth.nodes) { try { n.stop(); } catch {} }
     try { synth.out.disconnect(); } catch {}
     synth = null;
   };
-  /** Vinheta própria (~5 s): o reator ligando e acordes de guitarra distorcida. */
-  function playSynth() {
+  /**
+   * Trilha própria (sem arquivo enviado). intro = o reator ligando e acordes de
+   * guitarra (~5 s); depois, uma base ambiente em loop (pad + pulso) até parar.
+   */
+  function playSynth(intro) {
     const ctx = outCtx, t0 = ctx.currentTime + 0.05;
     const out = ctx.createGain();
     out.connect(musicBus);
     const nodes = [];
-    const shaper = ctx.createWaveShaper();
-    const curve = new Float32Array(1024);
-    for (let i = 0; i < curve.length; i++) curve[i] = Math.tanh(3.5 * (i / 512 - 1));
-    shaper.curve = curve;
-    const tone = ctx.createBiquadFilter();
-    tone.type = 'lowpass';
-    tone.frequency.value = 2400;
-    shaper.connect(tone);
-    tone.connect(out);
     const env = (g, at, peak, dur) => { g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, at + dur); };
-    // Subida do reator.
-    const sweep = ctx.createOscillator(), sg = ctx.createGain();
-    sweep.type = 'sawtooth';
-    sweep.frequency.setValueAtTime(55, t0);
-    sweep.frequency.exponentialRampToValueAtTime(440, t0 + 1.4);
-    sg.gain.setValueAtTime(0.0001, t0);
-    sg.gain.exponentialRampToValueAtTime(0.2, t0 + 1.2);
-    sg.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.5);
-    sweep.connect(sg); sg.connect(tone);
-    sweep.start(t0); sweep.stop(t0 + 1.6);
-    nodes.push(sweep);
-    const chord = (root, at, dur) => {
-      for (const mult of [1, 1.5, 2]) {
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = 'sawtooth'; o.frequency.value = root * mult; o.detune.value = (Math.random() - 0.5) * 14;
-        env(g, at, 0.16, dur);
-        o.connect(g); g.connect(shaper);
-        o.start(at); o.stop(at + dur + 0.05);
-        nodes.push(o);
-      }
+    let bedAt = t0;
+    if (intro) {
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(1024);
+      for (let i = 0; i < curve.length; i++) curve[i] = Math.tanh(3.5 * (i / 512 - 1));
+      shaper.curve = curve;
+      const tone = ctx.createBiquadFilter();
+      tone.type = 'lowpass';
+      tone.frequency.value = 2400;
+      shaper.connect(tone);
+      tone.connect(out);
+      // Subida do reator.
+      const sweep = ctx.createOscillator(), sg = ctx.createGain();
+      sweep.type = 'sawtooth';
+      sweep.frequency.setValueAtTime(55, t0);
+      sweep.frequency.exponentialRampToValueAtTime(440, t0 + 1.4);
+      sg.gain.setValueAtTime(0.0001, t0);
+      sg.gain.exponentialRampToValueAtTime(0.2, t0 + 1.2);
+      sg.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.5);
+      sweep.connect(sg); sg.connect(tone);
+      sweep.start(t0); sweep.stop(t0 + 1.6);
+      nodes.push(sweep);
+      const chord = (root, at, dur) => {
+        for (const mult of [1, 1.5, 2]) {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'sawtooth'; o.frequency.value = root * mult; o.detune.value = (Math.random() - 0.5) * 14;
+          env(g, at, 0.16, dur);
+          o.connect(g); g.connect(shaper);
+          o.start(at); o.stop(at + dur + 0.05);
+          nodes.push(o);
+        }
+        const k = ctx.createOscillator(), kg = ctx.createGain();
+        k.frequency.setValueAtTime(140, at); k.frequency.exponentialRampToValueAtTime(40, at + 0.25);
+        env(kg, at, 0.8, 0.35);
+        k.connect(kg); kg.connect(out);
+        k.start(at); k.stop(at + 0.4);
+        nodes.push(k);
+      };
+      const t1 = t0 + 1.5;
+      chord(82.41, t1, 0.45);        // E
+      chord(82.41, t1 + 0.6, 0.45);  // E
+      chord(98, t1 + 1.2, 0.3);      // G
+      chord(110, t1 + 1.5, 0.45);    // A
+      chord(82.41, t1 + 2.1, 1.9);   // E (segura)
+      bedAt = t1 + 2.6;
+    }
+    // Base ambiente: quatro vozes num filtro que "respira", trocando de acorde a cada 4 s.
+    const CHORDS = [[82.41, 123.47, 164.81, 196], [65.41, 98, 130.81, 164.81], [98, 146.83, 196, 246.94], [73.42, 110, 146.83, 185]];
+    const bed = ctx.createGain();
+    bed.gain.setValueAtTime(0.0001, bedAt);
+    bed.gain.exponentialRampToValueAtTime(0.35, bedAt + 2.5);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.7;
+    lp.connect(bed); bed.connect(out);
+    const lfo = ctx.createOscillator(), lfoGain = ctx.createGain();
+    lfo.frequency.value = 0.07; lfoGain.gain.value = 380;
+    lfo.connect(lfoGain); lfoGain.connect(lp.frequency);
+    lfo.start(bedAt); nodes.push(lfo);
+    const voices = CHORDS[0].map((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = i % 2 ? 'triangle' : 'sawtooth';
+      o.frequency.value = f; o.detune.value = (i - 1.5) * 4;
+      g.gain.value = i % 2 ? 0.16 : 0.07;
+      o.connect(g); g.connect(lp);
+      o.start(bedAt); nodes.push(o);
+      return o;
+    });
+    // Pulso grave, como um coração de máquina.
+    const pulse = (at) => {
       const k = ctx.createOscillator(), kg = ctx.createGain();
-      k.frequency.setValueAtTime(140, at); k.frequency.exponentialRampToValueAtTime(40, at + 0.25);
-      env(kg, at, 0.8, 0.35);
-      k.connect(kg); kg.connect(out);
-      k.start(at); k.stop(at + 0.4);
-      nodes.push(k);
+      k.frequency.setValueAtTime(70, at); k.frequency.exponentialRampToValueAtTime(42, at + 0.3);
+      env(kg, at, 0.35, 0.5);
+      k.connect(kg); kg.connect(bed);
+      k.start(at); k.stop(at + 0.55);
     };
-    const t1 = t0 + 1.5;
-    chord(82.41, t1, 0.45);        // E
-    chord(82.41, t1 + 0.6, 0.45);  // E
-    chord(98, t1 + 1.2, 0.3);      // G
-    chord(110, t1 + 1.5, 0.45);    // A
-    chord(82.41, t1 + 2.1, 1.9);   // E (segura)
-    synth = { out, nodes };
+    let step = 0, next = bedAt;
+    const schedule = () => {
+      // Agenda os próximos 4 s com folga (o setInterval do navegador não é preciso).
+      while (next < ctx.currentTime + 4.5) {
+        const chord = CHORDS[step % CHORDS.length];
+        voices.forEach((o, i) => o.frequency.setTargetAtTime(chord[i], next, 0.6));
+        for (let b = 0; b < 4; b++) pulse(next + b);
+        next += 4; step++;
+      }
+    };
+    schedule();
+    synth = { out, nodes, timer: setInterval(schedule, 1000) };
   }
-  /** Começa a trilha. Resolve true quando ela está tocando. test = ignora a opção desligada. */
-  async function startMusic(test = false) {
+  /**
+   * Começa a trilha. Resolve true quando ela está tocando.
+   * bed = já entra baixinha sob a voz (respostas); sem bed, abre cheia (briefing).
+   * test = toca mesmo com a opção desligada (botão Testar).
+   */
+  async function startMusic({ test = false, bed = false } = {}) {
+    clearTimeout(musicRelease); musicRelease = null;
     stopMusic(0);
     const my = ++musicSeq;
-    musicDucked = false;
+    musicDucked = bed;
     if ((!musicToggle.checked && !test) || !musicLevel()) return false;
     ensureMusicOut();
     if (outCtx && outCtx.state === 'suspended') await outCtx.resume().catch(() => {});
-    setMusicGain(musicLevel(), 0);
+    const target = () => musicLevel() * (musicDucked ? DUCK : 1);
+    setMusicGain(bed ? 0 : target(), 0);
     if (musicInfo === undefined) await refreshMusicInfo();
     if (musicInfo) {
       try {
@@ -573,15 +635,16 @@
         if (my !== musicSeq) return false;
         musicEl.src = musicUrl;
         musicEl.currentTime = 0;
-        // Chegou atrasada (arquivo grande): já entra baixa se a voz começou.
-        setMusicGain(musicLevel() * (musicDucked ? DUCK : 1), 0);
         await musicEl.play();
+        // Chegou atrasada (arquivo grande): já entra baixa se a voz começou.
+        setMusicGain(target(), bed ? 0.8 : 0.05);
         musicStartedAt = Date.now();
         return my === musicSeq;
       } catch {}
     }
     if (my !== musicSeq || !musicBus) return false;
-    playSynth();
+    playSynth(!bed);
+    setMusicGain(target(), bed ? 0.8 : 0.05);
     musicStartedAt = Date.now();
     return true;
   }
@@ -589,19 +652,47 @@
   function stopMusic(fadeSeconds = 2) {
     const my = ++musicSeq;
     musicDucked = false;
-    if (musicEl.paused && !synth) return;
+    clearTimeout(musicRelease); musicRelease = null;
+    if (!musicPlaying()) return;
     const halt = () => { if (my !== musicSeq) return; try { musicEl.pause(); } catch {} stopSynth(); };
     if (fadeSeconds > 0) { setMusicGain(0, fadeSeconds); setTimeout(halt, fadeSeconds * 1000 + 50); } else halt();
   }
+  /** O Jarvis vai falar: garante a trilha baixinha por baixo (a não ser que tenham pedido sem música). */
+  function musicUnderSpeech() {
+    clearTimeout(musicRelease); musicRelease = null;
+    if (musicSkipOnce || !musicToggle.checked) return;
+    if (musicPlaying()) { if (!musicDucked) duckMusic(); return; }
+    startMusic({ bed: true });
+  }
+  /** Terminou de falar: se não vier outra fala logo, a trilha some (o briefing cuida do próprio fim). */
+  function musicAfterSpeech() {
+    if (briefingRunning) return;
+    clearTimeout(musicRelease);
+    musicRelease = setTimeout(() => { musicRelease = null; stopMusic(2); }, 1500);
+  }
+  // Comandos: "desliga a música", "sem música", "pode tocar a música".
+  const MUSIC_WORD = '(musica|musicas|trilha|som de fundo)';
+  const MUSIC_OFF_RE = new RegExp('\\b(desliga\\w*|para|parar|pare|tira\\w*|sem|nao|chega de)\\b[a-z ]{0,25}?\\b' + MUSIC_WORD + '\\b');
+  const MUSIC_ON_RE = new RegExp('\\b(liga\\w*|volta\\w*|pode tocar|toca\\w*|coloca\\w*|bota\\w*|quero)\\b[a-z ]{0,25}?\\b' + MUSIC_WORD + '\\b');
+  /** 'off' | 'on' = comando só sobre a música; 'once' = pergunta com "sem música"; null = nada. */
+  function musicCommand(plain) {
+    const off = MUSIC_OFF_RE.exec(plain);
+    const m = off || MUSIC_ON_RE.exec(plain);
+    if (!m) return null;
+    const rest = plain.replace(m[0], ' ').replace(/\b(jarvis|por favor|agora|a|o|de|da|do|e|ai)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    if (rest.length > 12) return off ? 'once' : null;
+    return off ? 'off' : 'on';
+  }
+  window.__jarvis = { ...(window.__jarvis || {}), musicCommand };
   musicToggle.onchange = () => { store.set('jarvis_music', musicToggle.checked ? '1' : '0'); if (!musicToggle.checked) stopMusic(0.3); };
   musicVolume.oninput = () => {
     store.set('jarvis_music_volume', musicVolume.value);
-    if (!musicEl.paused || synth) setMusicGain(musicLevel() * (musicDucked ? DUCK : 1), 0.1);
+    if (musicPlaying()) setMusicGain(musicLevel() * (musicDucked ? DUCK : 1), 0.1);
   };
   function setMusicInfo(info) {
     musicInfo = info || null;
     if (musicUrl) { URL.revokeObjectURL(musicUrl); musicUrl = null; }
-    $('musicName').textContent = musicInfo ? 'Trilha: ' + musicInfo.nome : 'Trilha: vinheta padrão';
+    $('musicName').textContent = musicInfo ? 'Trilha: ' + musicInfo.nome : 'Trilha: própria do Jarvis';
     $('musicDel').hidden = !musicInfo;
   }
   async function refreshMusicInfo() {
@@ -611,7 +702,7 @@
     } catch {}
   }
   const AUDIO_EXT = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', wav: 'audio/wav', webm: 'audio/webm' };
-  window.__jarvis = { ...(window.__jarvis || {}), music: () => ({ tocando: !musicEl.paused || !!synth, arquivo: !musicEl.paused, vinheta: !!synth, abaixada: musicDucked, ganho: musicBus ? musicBus.gain.value : musicEl.volume }) };
+  window.__jarvis = { ...(window.__jarvis || {}), music: () => ({ tocando: musicPlaying(), arquivo: !musicEl.paused, vinheta: !!synth, abaixada: musicDucked, ganho: musicBus ? musicBus.gain.value : musicEl.volume }) };
   $('musicPick').onclick = () => $('musicFile').click();
   $('musicFile').onchange = async () => {
     const f = $('musicFile').files?.[0];
@@ -625,7 +716,7 @@
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Não consegui enviar a música.');
       setMusicInfo(d.musica);
-      subtitle('Trilha do briefing salva. Toque em Testar para ouvir.', 4000);
+      subtitle('Trilha salva. Toque em Testar para ouvir.', 4000);
     } catch (err) {
       showError(err.message || 'Não consegui enviar a música.');
       refreshMusicInfo();
@@ -639,7 +730,7 @@
     } catch {}
   };
   $('musicTest').onclick = async () => {
-    if (!(await startMusic(true))) return subtitle('Não consegui tocar a trilha neste navegador.', 4000);
+    if (!(await startMusic({ test: true }))) return subtitle('Não consegui tocar a trilha neste navegador.', 4000);
     const seq = musicSeq;
     setTimeout(() => { if (musicSeq === seq) stopMusic(1.5); }, 8000);
   };
@@ -647,6 +738,7 @@
   let speakSeq = 0, fakeSpeech = false, endCurrent = null;
   const stopSpeaking = () => {
     speakSeq++;
+    stopMusic(0.4);
     try { player.pause(); } catch {}
     try { speechSynthesis.cancel(); } catch {}
     fakeSpeech = false;
@@ -708,7 +800,16 @@
    * primeiro começa a tocar enquanto o próximo já está sendo gerado.
    * Resolve false se foi interrompido.
    */
-  async function say(text, { pre, force } = {}) {
+  async function say(text, opts = {}) {
+    const voice = speakToggle.checked || !!opts.force;
+    if (voice && clean(text).trim()) musicUnderSpeech();
+    try {
+      return await sayInner(text, opts);
+    } finally {
+      musicAfterSpeech();
+    }
+  }
+  async function sayInner(text, { pre, force } = {}) {
     const my = ++speakSeq;
     const parts = sentences(text);
     if (!parts.length) { pre?.abort(); return true; }
@@ -777,7 +878,7 @@
     stopSpeaking();
     ensureOut();
     const my = speakSeq;
-    const musicOn = startMusic();
+    const musicOn = musicSkipOnce ? Promise.resolve(false) : startMusic();
     setBusy(true);
     setMode('thinking');
     showCard({ tipo: 'loading', rotulo: 'BRIEFING DO DIA', titulo: 'Preparando seu briefing' });
@@ -814,6 +915,7 @@
     } finally {
       pending?.abort(); // não paga voz que não vai ser falada
       stopMusic(my === speakSeq ? 2.5 : 0.4);
+      musicSkipOnce = false;
       hideLoading();
       briefingRunning = false;
       setBusy(false);
@@ -892,6 +994,16 @@
     stopSpeaking();
     ensureOut();
     const plain = message.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const cmd = musicCommand(plain);
+    if (cmd === 'off' || cmd === 'on') {
+      musicToggle.checked = cmd === 'on';
+      musicToggle.onchange();
+      showCard({ rotulo: 'MÚSICA', titulo: cmd === 'on' ? 'Música ligada' : 'Música desligada', texto: cmd === 'on' ? 'Volto a tocar a trilha enquanto falo.' : 'Falo sem música até você pedir de novo ("pode tocar a música").' });
+      if (await say(cmd === 'on' ? 'Música ligada.' : 'Pronto, sem música.', { force: spoken })) subtitle('');
+      restMode();
+      return;
+    }
+    musicSkipOnce = cmd === 'once';
     if (BRIEF_RE.test(plain)) return runBriefing({ force: spoken });
     setBusy(true);
     setMode('thinking');
@@ -904,19 +1016,25 @@
       sessionStorage.setItem('jarvis_conversation', conversationId);
       const tools = (data.tools || []).map((t) => t.name.replace(/^ampliize_|^memoria_/, '') + (t.ok ? '' : ' (falhou)'));
       // Links das ferramentas (ex.: "Criar no Lovable") viram botões; só destinos conhecidos.
-      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)));
+      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)) || /^jarvis:estudio\/[a-f0-9]{24}$/.test(String(l.url)));
+      // Produção de site começou: acompanha em segundo plano.
+      for (const l of links) { const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url); if (m) watchStudio(m[1]); }
       showCard({
         rotulo: 'RESPOSTA',
         titulo: trunc(message, 90),
         texto: data.answer,
         rodape: tools.length ? 'consultou: ' + tools.join(', ') : '',
-        botoes: links.map((l) => ({ texto: l.rotulo, fn: () => window.open(l.url, '_blank', 'noopener,noreferrer') })),
+        botoes: links.map((l) => ({
+          texto: l.rotulo,
+          fn: () => { const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url); if (m) showStudio(m[1]); else window.open(l.url, '_blank', 'noopener,noreferrer'); },
+        })),
       });
       setBusy(false); // resposta chegou: já dá para interromper a fala com o mic
       if (await say(data.answer, { force: spoken })) subtitle('');
     } catch (err) {
       showError(err.message || 'Sem conexão com o servidor.');
     } finally {
+      musicSkipOnce = false;
       setBusy(false);
       if (mode !== 'error' && mode !== 'listening' && mode !== 'transcribing') restMode();
     }
@@ -1222,7 +1340,7 @@
     ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
     ['Notícias', '“notícias de marketing digital” · “o que saiu sobre Aracaju?”'],
     ['Guardião dos agentes', '“revise os rascunhos dos agentes” · “o SDR saiu da linha?” · regras em _jarvis/regras-dos-agentes.md'],
-    ['Criar site (Lovable)', '“cria uma landing page com scroll animation para a clínica X” · toque em “Criar no Lovable”'],
+    ['Estúdio de sites (Claude)', '“cria uma landing page com scroll animation para a clínica X, referências nesta pasta do Pinterest” · o Jarvis produz tudo (conceito, imagens, frames, HTML) e entrega prévia + prompt do Lovable'],
     ['Mentor técnico', '“como faço RLS nessa tabela?” · “olha o código do CRM e me explica esse erro” (lê o GitHub)'],
     ['Auditoria', '“o que você fez hoje?” · tudo o que o Jarvis consultou fica registrado'],
     ['Monitor da operação', 'botão MONITOR ou “como está a operação?”: semáforo de sistemas, riscos, dinheiro, entregas, comercial, CRM e lembretes'],
@@ -1497,7 +1615,123 @@
       botoes: [{ texto: 'Ativar', fn: () => { wakeToggle.checked = true; wakeToggle.onchange(); closeFocus(); subtitle('Pronto. Diga “Jarvis” e a pergunta.', 4000); } }],
     });
   }
+  // ================= estúdio de sites =================
+  // O Jarvis produz o site com o Claude em segundo plano; aqui o HUD acompanha
+  // cada etapa e, no fim, entrega prévia, HTML e o prompt do Lovable.
+  const studioJobs = new Map(); // id -> último estado
+  const studioTimers = new Map();
+  const STUDIO_STEPS = ['Baixando as referências', 'Claude estruturando a ideia', 'Gerando as imagens', 'Montando os frames do scroll', 'Claude escrevendo o site', 'Revisando linha por linha'];
+  let studioVideoFor = null;
+  const openSafe = (url) => { if (/^https:\/\//.test(url)) window.open(url, '_blank', 'noopener,noreferrer'); };
+  function studioCard(t) {
+    const done = t.etapa === 'pronto', failed = t.etapa === 'erro';
+    const itens = STUDIO_STEPS.map((nome, i) => ({
+      titulo: (done || i < t.passo ? '✓ ' : i === t.passo && !failed && t.etapa !== 'fila' ? '◌ ' : '· ') + nome,
+      alerta: failed && i === t.passo,
+    }));
+    if (t.conceito) itens.unshift({ titulo: 'Ideia: ' + t.conceito.titulo, detalhe: t.conceito.ideia });
+    for (const a of t.avisos || []) itens.push({ titulo: 'Aviso', detalhe: a, alerta: true });
+    for (const p of t.problemas_restantes || []) itens.push({ titulo: 'Pendência da revisão', detalhe: p, alerta: true });
+    const botoes = [];
+    if (done) {
+      botoes.push({ texto: 'Ver prévia', fn: () => openSafe(t.previa_url) });
+      botoes.push({ texto: 'Baixar HTML', fn: () => openSafe(t.download_url) });
+      botoes.push({ texto: 'Copiar prompt do Lovable', fn: async () => {
+        try { await navigator.clipboard.writeText(t.lovable_prompt || ''); subtitle('Prompt copiado. No Lovable, cole, anexe o HTML baixado e envie.', 6000); }
+        catch { subtitle('Não consegui copiar; o prompt também está na nota do vault.', 5000); }
+      } });
+      botoes.push({ texto: 'Abrir Lovable', fn: () => openSafe('https://lovable.dev/#prompt=' + encodeURIComponent(t.lovable_prompt || '')) });
+    }
+    if (done || failed) botoes.push({ texto: 'Enviar vídeo do Flow', fn: () => { studioVideoFor = t.id; $('studioVideo').click(); } });
+    return {
+      id: 'estudio-' + t.id,
+      rotulo: 'ESTÚDIO · SITE',
+      titulo: done ? t.nome + ' está pronto' : failed ? t.nome + ': parou' : 'Produzindo: ' + t.nome,
+      destaque: { valor: done ? '✓' : failed ? '!' : Math.min(t.passo + 1, STUDIO_STEPS.length) + '/' + STUDIO_STEPS.length, legenda: done ? 'pronto' : failed ? 'erro' : t.etapa_nome },
+      texto: failed ? t.erro : done ? (t.frames ? t.frames.quantidade + ' frames (' + (t.frames.origem === 'video' ? 'do vídeo' : 'da imagem principal') + '), ' : '') + t.imagens + ' imagens geradas, ' + t.referencias + ' referências analisadas.' : '',
+      itens,
+      botoes,
+    };
+  }
+  function renderStudio(t, focus) {
+    const card = studioCard(t);
+    if (focus || (focusData && focusData.id === card.id)) showCard(card);
+    else pushDock(card);
+  }
+  async function pollStudio(id) {
+    try {
+      const r = await api('/api/estudio/' + id);
+      if (!r.ok) return stopWatch(id);
+      const t = (await r.json()).trabalho;
+      const prev = studioJobs.get(id);
+      studioJobs.set(id, t);
+      if (!prev || prev.etapa !== t.etapa) renderStudio(t, false);
+      if (t.etapa === 'pronto' || t.etapa === 'erro') {
+        stopWatch(id);
+        if (prev && prev.etapa !== t.etapa) {
+          renderStudio(t, true);
+          const msg = t.etapa === 'pronto' ? 'O site ' + t.nome + ' está pronto. Toque em ver prévia.' : 'A produção do site ' + t.nome + ' parou. ' + (t.erro || '');
+          if (resting() && (await say(msg))) { subtitle(''); restMode(); }
+        }
+      }
+    } catch { /* rede: tenta de novo no próximo ciclo */ }
+  }
+  function stopWatch(id) { clearInterval(studioTimers.get(id)); studioTimers.delete(id); }
+  function watchStudio(id) {
+    if (studioTimers.has(id)) return;
+    pollStudio(id);
+    studioTimers.set(id, setInterval(() => pollStudio(id), 4000));
+  }
+  async function showStudio(id) {
+    const t = studioJobs.get(id);
+    if (t) renderStudio(t, true);
+    watchStudio(id);
+  }
+  $('studioBtn').onclick = async () => {
+    toggleHud(false);
+    try {
+      const r = await api('/api/estudio');
+      const list = (await r.json()).trabalhos || [];
+      list.forEach((t) => studioJobs.set(t.id, t));
+      showCard({
+        rotulo: 'ESTÚDIO',
+        titulo: 'Sites produzidos',
+        texto: 'Peça “cria uma landing page com scroll animation para …” e mande a pasta do Pinterest com as referências.',
+        itens: list.map((t) => ({ titulo: t.nome + ' · ' + t.etapa_nome, detalhe: new Date(t.criado_em).toLocaleString('pt-BR'), alerta: t.etapa === 'erro' })),
+        vazio: 'Nenhum site produzido ainda.',
+        botoes: list.slice(0, 4).map((t) => ({ texto: 'Abrir ' + t.nome.slice(0, 18), fn: () => showStudio(t.id) })),
+      });
+    } catch (err) { showError(err.message || 'Não consegui abrir o estúdio.'); }
+  };
+  $('studioVideo').onchange = async () => {
+    const f = $('studioVideo').files?.[0];
+    $('studioVideo').value = '';
+    const id = studioVideoFor;
+    if (!f || !id) return;
+    if (f.size > 100 * 1024 * 1024) return showError('Vídeo grande demais (máximo 100 MB).');
+    subtitle('Enviando o vídeo…');
+    try {
+      const r = await api('/api/estudio/' + id + '/video', { method: 'POST', headers: { 'Content-Type': f.type || 'video/mp4' }, body: f });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Não consegui enviar o vídeo.');
+      studioJobs.set(id, d.trabalho);
+      renderStudio(d.trabalho, true);
+      subtitle('Vídeo recebido. Vou tirar os frames e refazer o site.', 5000);
+      watchStudio(id);
+    } catch (err) { showError(err.message); }
+  };
+  async function resumeStudio() {
+    try {
+      const r = await api('/api/estudio');
+      for (const t of (await r.json()).trabalhos || []) {
+        studioJobs.set(t.id, t);
+        if (t.etapa !== 'pronto' && t.etapa !== 'erro') watchStudio(t.id);
+      }
+    } catch {}
+  }
+
   function afterLogin() {
+    resumeStudio();
     wakePaused = false;
     startWake();
     checkReminders();

@@ -29,6 +29,12 @@ import { AgentGuard, guardConnector } from "./skills/guard.js";
 import { sitesConnector } from "./skills/sites.js";
 import { githubConnector } from "./connectors/github.js";
 import type { ToolLink } from "./llm/openai.js";
+import { ClaudeCreative, type CreativeModel } from "./studio/claude.js";
+import { isJobId, Studio, StudioError } from "./studio/studio.js";
+import { jobView, studioConnector } from "./studio/connector.js";
+import type { Runner } from "./studio/frames.js";
+import type { ImageFormat } from "./studio/images.js";
+import type { NetDeps } from "./studio/net.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 120;
@@ -47,13 +53,16 @@ export interface AppDeps {
   awaitBrainSetup?: boolean;
   /** Testes: DNS, certificado e relógio falsos para o monitor de sistemas. */
   monitorOptions?: Omit<MonitorOptions, "fetchImpl">;
+  /** Testes: Claude, imagens, rede e ffmpeg falsos para o estúdio. */
+  studioOptions?: { creative?: CreativeModel | null; image?: (prompt: string, format: ImageFormat) => Promise<Buffer>; net?: NetDeps; runner?: Runner };
 }
 
-/** Só links para destinos conhecidos viram botão no HUD. */
+/** Só links para destinos conhecidos viram botão no HUD (e "jarvis:estudio/<id>", que abre o andamento). */
 const LINK_HOSTS = ["lovable.dev", "github.com"];
 export const safeLinks = (links: ToolLink[] = []) =>
   links
     .filter((l) => {
+      if (/^jarvis:estudio\/[a-f0-9]{24}$/.test(l.url)) return true;
       try {
         const u = new URL(l.url);
         return u.protocol === "https:" && LINK_HOSTS.includes(u.hostname);
@@ -76,7 +85,36 @@ function aiErrorResponse(c: Context, err: unknown) {
   return c.json({ error: "Erro interno do Jarvis." }, 500);
 }
 
-export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOptions }: AppDeps) {
+const STUDIO_TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg" };
+const VIDEO_EXT: Record<string, string> = { "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+
+/** Lê o corpo parando no limite (um envio sem Content-Length não enche a memória). null = passou do limite. */
+async function readLimited(req: Request, max: number): Promise<ArrayBuffer | null> {
+  if (!req.body) return new ArrayBuffer(0);
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out.buffer;
+}
+
+export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOptions, studioOptions }: AppDeps) {
   const brain = new Brain(config.dataDir);
   const store = new ConversationStore(config.dataDir);
   await Promise.all([brain.init(), store.init()]);
@@ -92,6 +130,18 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     guard: new AgentGuard({ config, brainRoot: brain.root, dataDir: config.dataDir, fetchImpl, context: () => brain.context() }),
   };
   const audit = new AuditLog(config.dataDir);
+  const studio = new Studio({
+    config,
+    brain,
+    dataDir: config.dataDir,
+    creative: studioOptions && "creative" in studioOptions ? studioOptions.creative ?? null : config.anthropicApiKey ? new ClaudeCreative(config.anthropicApiKey) : null,
+    image: studioOptions?.image,
+    net: studioOptions?.net ?? (fetchImpl ? { fetchImpl } : undefined),
+    runner: studioOptions?.runner,
+  });
+  await studio.recover();
+  // Endereço público do Jarvis para as URLs dos sites (JARVIS_PUBLIC_URL ou o da última requisição).
+  let origin = config.publicUrl || `http://localhost:${config.port}`;
   skills.monitor!.start();
   const playbooks = new Playbooks(brain.root);
   const music = new BriefingMusic(config.dataDir);
@@ -102,6 +152,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       operationConnector(getOperation, skills.alerts!),
       guardConnector(skills.guard!),
       sitesConnector(config, brain, fetchImpl),
+      studioConnector(studio, () => origin),
       ...(config.github ? [githubConnector(config.github, fetchImpl)] : []),
       auditConnector(audit),
     ]),
@@ -124,7 +175,17 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
   }
 
   const app = new Hono();
-  app.use("*", secureHeaders());
+  // A prévia e os frames do estúdio são carregados por outros domínios (o site no Lovable).
+  const strict = secureHeaders();
+  const studioHeaders = secureHeaders({ crossOriginResourcePolicy: false, crossOriginOpenerPolicy: false, xFrameOptions: false });
+  app.use("*", (c, next) => (c.req.path.startsWith("/estudio/") ? studioHeaders(c, next) : strict(c, next)));
+  /** Sem JARVIS_PUBLIC_URL: usa o endereço das requisições autenticadas (nunca de quem não tem a senha). */
+  const learnOrigin = (c: Context) => {
+    if (config.publicUrl) return;
+    const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
+    const proto = c.req.header("x-forwarded-proto")?.split(",")[0]?.trim() || new URL(c.req.url).protocol.replace(":", "");
+    if (host && /^[a-z0-9.-]+(:\d+)?$/i.test(host) && /^https?$/.test(proto)) origin = `${proto}://${host}`;
+  };
   if (config.corsOrigins.length) {
     app.use("/api/*", cors({ origin: config.corsOrigins, allowHeaders: ["Authorization", "Content-Type"], allowMethods: ["GET", "POST", "DELETE"] }));
   }
@@ -159,6 +220,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       return c.json({ error: "Não autorizado." }, 401);
     }
     if (over(hits, ip, RATE_LIMIT_PER_MINUTE, now)) return c.json({ error: "Muitas requisições. Aguarde um minuto." }, 429);
+    learnOrigin(c);
     return next();
   });
 
@@ -349,6 +411,36 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     }
   });
 
+  // Estúdio de sites: produção em segundo plano; o HUD acompanha pelo id.
+  app.post("/api/estudio", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body) return c.json({ error: "Envie o briefing em JSON." }, 400);
+    try {
+      return c.json({ trabalho: jobView(await studio.start(body as never, origin)) }, 202);
+    } catch (err) {
+      if (err instanceof StudioError) return c.json({ error: err.message }, 400);
+      console.error("estúdio falhou:", err);
+      return c.json({ error: "Não consegui começar a produção." }, 500);
+    }
+  });
+  app.get("/api/estudio", async (c) => c.json({ trabalhos: (await studio.list(20)).map(jobView) }));
+  app.get("/api/estudio/:id", async (c) => {
+    const job = await studio.get(c.req.param("id"));
+    return job ? c.json({ trabalho: jobView(job) }) : c.json({ error: "Trabalho não encontrado." }, 404);
+  });
+  app.post("/api/estudio/:id/video", async (c) => {
+    const ext = VIDEO_EXT[(c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase()];
+    if (!ext) return c.json({ error: "Envie um vídeo mp4, webm ou mov." }, 415);
+    if (Number(c.req.header("content-length") ?? 0) > MAX_VIDEO_BYTES) return c.json({ error: "Vídeo grande demais (máximo 100 MB)." }, 413);
+    const data = await readLimited(c.req.raw, MAX_VIDEO_BYTES);
+    if (!data?.byteLength) return c.json({ error: "Vídeo vazio ou grande demais (máximo 100 MB)." }, 413);
+    try {
+      return c.json({ trabalho: jobView(await studio.attachVideo(c.req.param("id"), data, ext)) }, 202);
+    } catch (err) {
+      return c.json({ error: err instanceof StudioError ? err.message : "Não consegui usar o vídeo." }, err instanceof StudioError ? 409 : 500);
+    }
+  });
+
   app.get("/api/skills", async (c) => c.json({ skills: (await playbooks.list()).map((p) => ({ id: p.id, nome: p.nome, quando_usar: p.quando })) }));
 
   app.get("/api/connectors", (c) =>
@@ -384,6 +476,30 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       console.error("chat falhou:", err);
       return aiErrorResponse(c, err);
     }
+  });
+
+  // Prévia pública do estúdio (id impossível de adivinhar). A página roda isolada
+  // (CSP sandbox, origem opaca): o código gerado não alcança a senha guardada no HUD.
+  app.get("/estudio/:id/*", async (c) => {
+    const id = c.req.param("id");
+    if (!isJobId(id)) return c.notFound();
+    const rel = decodeURIComponent(c.req.path.slice(`/estudio/${id}/`.length));
+    const download = rel === "baixar";
+    const file = download || rel === "" ? "index.html" : rel;
+    if (!/^(index\.html|assets\/[a-z0-9-]+\.webp|frames\/[dm]\/f_\d{3}\.webp)$/.test(file)) return c.notFound();
+    const data = await readFile(path.join(studio.publicDir(id), file)).catch(() => null);
+    if (!data) return c.notFound();
+    const headers: Record<string, string> = {
+      "Content-Type": STUDIO_TYPES[path.extname(file)] ?? "application/octet-stream",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      "Access-Control-Allow-Origin": "*",
+    };
+    if (file === "index.html") {
+      headers["Cache-Control"] = "no-store";
+      headers["Content-Security-Policy"] = "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox";
+      if (download) headers["Content-Disposition"] = `attachment; filename="${id}.html"`;
+    } else headers["Cache-Control"] = "public, max-age=31536000, immutable";
+    return c.body(data, 200, headers);
   });
 
   // Interface (HUD com o holograma do camaleão da Ampliize).
