@@ -69,7 +69,10 @@ export class NewsService {
     }
     if (!res.ok) throw new NewsError(`O serviço de notícias falhou (HTTP ${res.status}).`);
     const data = parseRss(await res.text());
+    // Temas vêm de fora (rota do HUD): guarda só os 50 mais recentes.
+    this.cache.delete(key);
     this.cache.set(key, { at: Date.now(), data });
+    while (this.cache.size > 50) this.cache.delete(this.cache.keys().next().value!);
     return data;
   }
 }

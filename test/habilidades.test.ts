@@ -204,3 +204,37 @@ test("limites: senha errada trava depois de 10 tentativas, uso normal aguenta a 
   const other = { "x-forwarded-for": "8.8.8.8", ...auth };
   for (let i = 0; i < 60; i++) assert.equal((await app.request("/api/lembretes", { headers: other })).status, 200);
 });
+
+test("painéis do HUD: /api/clima, /api/noticias e serviços no /api/status", async () => {
+  const rss = `<rss><channel><item><title>IA no varejo - G1</title><link>https://news.google.com/x</link><source url="https://g1.globo.com">G1</source></item></channel></rss>`;
+  const asked: string[] = [];
+  const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    const u = String(url);
+    asked.push(u);
+    if (u.startsWith("https://news.google.com/")) return new Response(rss);
+    return weatherFetch()(url, init);
+  }) as typeof fetch;
+  const app = await createApp({ config: loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN, DATA_DIR: await tmp(), JARVIS_CITY: "Aracaju" }), fetchImpl });
+  assert.equal((await app.request("/api/clima")).status, 401);
+  assert.equal((await app.request("/api/noticias")).status, 401);
+
+  const clima = ((await (await app.request("/api/clima", { headers: auth })).json()) as any).clima;
+  assert.equal(clima.agora.temperatura, 27);
+  assert.equal(clima.agora.umidade, 70);
+  assert.equal(clima.hoje.chance_de_chuva, 20);
+
+  const res = await app.request(`/api/noticias?tema=${encodeURIComponent("Inteligência artificial" + "x".repeat(200))}`, { headers: auth });
+  const news = (await res.json()) as any;
+  assert.equal(news.tema.length, 80);
+  assert.deepEqual(news.noticias.map((n: any) => n.titulo), ["IA no varejo"]);
+  assert.match(asked.find((u) => u.includes("news.google.com"))!, /q=Intelig%C3%AAncia%20artificial/);
+
+  const status = (await (await app.request("/api/status", { headers: auth })).json()) as any;
+  assert.deepEqual(status.servicos, { motor: false, crm: false, fala: "navegador", estudio: null, github: false, sistemas_monitorados: 0 });
+
+  // Clima fora do ar: 502 com JSON (a tela não confunde com o servidor caído).
+  const down = await createApp({ config: loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN, DATA_DIR: await tmp() }), fetchImpl: (async () => new Response("", { status: 500 })) as typeof fetch });
+  const r = await down.request("/api/clima", { headers: auth });
+  assert.equal(r.status, 502);
+  assert.match(r.headers.get("content-type") ?? "", /json/);
+});

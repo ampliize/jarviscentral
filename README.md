@@ -137,8 +137,21 @@ No Mac é igual (Git já vem com o Xcode Command Line Tools).
 | Chamar por voz | "**Jarvis**, …" (liga/desliga em GERENCIAR HUD → Chamar por “Jarvis”) |
 | Falar | botão do microfone ou tecla **espaço**; para sozinho quando você fica em silêncio |
 | Interromper a fala | **Esc** (ou começar a falar de novo) |
-| Rever um card | clique nele na doca (coluna à direita no PC, fileira embaixo no celular) |
+| Rever um card | no PC, clique na linha dele em **Jarvis · Canal ativo**; no celular, na doca embaixo |
+| Segunda tela (outro monitor) | botão **TELAS** (canto inferior esquerdo) ou abra `/?tela=1` |
+| Ligar/desligar voz e música | ícones do canto inferior direito (ou GERENCIAR HUD) |
 | Voz, modo palmas, configuração, nova conversa, sair | **GERENCIAR HUD** |
+
+### Central de comando (PC, a partir de 1100 px)
+
+Inspirada em jarvis.lucasvictor.ai, com uma regra: **o Jarvis organiza, mas não inventa dados**.
+Todo número na tela é medido ou vem da API; o que não existe aparece como "off" ou "—".
+
+- **Barra de cima**: relógio, *Sistema online/Sem conexão* (resposta real do servidor) e *Voice link* (estado da voz agora).
+- **Coluna esquerda**: *Sinal · Entrada* e *Sinal · Espectro* desenham o áudio de verdade (microfone quando ele ouve, a voz dele quando fala; parado = linha reta); *Voz · Leitura* é quanto da resposta ele já leu; *Núcleo · Serviços* vem do `/api/status` e do navegador (microfone, reconhecimento de voz); *Ampliize · Pulso* são os números do CRM.
+- **Coluna direita**: *Sensores · Clima* (Open-Meteo: temperatura, sensação, umidade no anel, mínima, máxima e chuva) e *Canal ativo* (o que você pediu e o que ele respondeu; clique para reabrir o card).
+- **Briefing**: abre com a sequência *Presença detectada → Acesso validado → Dados do dia lidos → Briefing iniciado → Panorama do dia*; cada passo só acende quando aconteceu.
+- **Segunda tela** (`/?tela=1`): abas *Centro de comando* (monitor da operação + agenda), *Radar de notícias* (Google Notícias por tema), *Núcleo do sistema* (serviços, sistemas monitorados e auditoria das últimas 24 h) e *Espelho* (cada card da tela principal aparece ali). Atualiza a cada 5 min ou em **Atualizar dados**. Não ouve, não fala e não toca música.
 
 O holograma é desenhado no navegador (canvas) a partir de `public/camaleao.png`,
 a silhueta do camaleão do logo. Para trocar o desenho, substitua esse PNG
@@ -361,7 +374,9 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET | `/api/conversations` | Conversas recentes |
 | GET | `/api/conversations/:id` | Mensagens de uma conversa |
 | GET | `/api/connectors` | Projetos conectados e ferramentas |
-| GET | `/api/status` | Modelo, voz e estado do cérebro (Obsidian) |
+| GET | `/api/status` | Modelo, voz, estado do cérebro (Obsidian) e `servicos` (motor, CRM, fala, estúdio, GitHub, sistemas) |
+| GET | `/api/clima` | Clima agora, hoje e amanhã na cidade do `JARVIS_CITY` |
+| GET | `/api/noticias` | Manchetes recentes (`?tema=`, até 80 caracteres) |
 | GET | `/api/briefing` | Briefing do dia: `{ saudacao, abertura, cards[], fechamento, atencao, numeros }` |
 | GET · POST · DELETE | `/api/briefing/musica` | Trilha de abertura do briefing (POST com o áudio no corpo, `Content-Type: audio/*`, `X-File-Name` opcional) |
 | GET | `/api/briefing/musica/info` | `{ musica: { nome, tipo, bytes, enviado_em } \| null }` |

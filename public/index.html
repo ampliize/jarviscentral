@@ -131,14 +131,12 @@
   .round svg { width:20px; height:20px; }
 
   /* ---------- painel lateral (pulso) ---------- */
-  #side { position:fixed; left:18px; top:110px; z-index:10; width:230px; }
-  #side .card { padding:14px; }
+  #side { padding:10px 12px; }
   .pulse-row { display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:8px 0; border-bottom:1px solid rgba(90,200,255,.12); }
   .pulse-row:last-child { border-bottom:0; }
   .pulse-row span { font:600 10px var(--mono); letter-spacing:.1em; color:var(--muted); text-transform:uppercase; }
   .pulse-row b { font-size:16px; }
   .pulse-row.alerta b { color:var(--warn); }
-  @media (max-width:1100px) { #side { display:none; } }
 
   /* ---------- gerenciar HUD ---------- */
   #hud { position:fixed; top:48px; right:16px; z-index:30; width:min(300px, calc(100vw - 32px)); }
@@ -159,6 +157,84 @@
   #login input:focus { outline:none; border-color:var(--cyan); }
   #login p { color:var(--muted); font-size:13px; line-height:1.5; margin:8px 0 0; }
   #loginMsg { color:var(--warn) !important; min-height:1.2em; }
+
+  /* ---------- central de comando: barras, colunas e painéis (só dados reais) ---------- */
+  .brand { position:fixed; top:17px; left:22px; z-index:20; display:flex; align-items:baseline; gap:10px; pointer-events:none; }
+  .brand b { font:600 18px var(--sans); letter-spacing:.35em; color:#fff; }
+  .brand span, .status, .panel-h, .chip, .corner .label { font:600 9px var(--mono); letter-spacing:.22em; text-transform:uppercase; }
+  .brand span { color:var(--cyan); }
+  .status { position:fixed; top:19px; right:22px; z-index:20; display:flex; align-items:center; gap:16px; color:var(--cyan); }
+  .status #netState { display:flex; align-items:center; gap:6px; color:var(--ok); }
+  .status #netState.bad { color:var(--warn); }
+  .status #netState i { width:6px; height:6px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; animation:pulseDot 2s ease-in-out infinite; }
+  @keyframes pulseDot { 50% { opacity:.35; } }
+  .status time { font:600 14px var(--mono); letter-spacing:.12em; color:#fff; }
+  .ruler { width:220px; height:6px; margin:8px auto 0; opacity:.38; background-image:repeating-linear-gradient(90deg, var(--cyan) 0 1px, transparent 1px 5px); }
+  .col { position:fixed; top:62px; bottom:84px; z-index:10; width:236px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:thin; padding:2px; }
+  #leftcol { left:18px; } #rightcol { right:18px; }
+  .panel { flex:none; border:1px solid rgba(90,200,255,.26); border-radius:10px; padding:10px 12px;
+    background:linear-gradient(180deg, rgba(20,90,200,.16), rgba(4,18,46,.42)); backdrop-filter:blur(4px); }
+  .panel-h { display:flex; justify-content:space-between; align-items:center; gap:8px; color:rgba(232,246,255,.82); }
+  .panel-h .chip { color:var(--cyan); letter-spacing:.12em; font-size:8px; }
+  .panel canvas { display:block; width:100%; margin-top:8px; }
+  .lerbar { height:2px; margin-top:12px; background:rgba(90,200,255,.12); border-radius:2px; overflow:hidden; }
+  .lerbar i { display:block; height:100%; width:0; background:var(--cyan); box-shadow:0 0 8px var(--cyan); transition:width .35s; }
+  .svc { display:grid; grid-template-columns:1fr 1fr; gap:7px 10px; margin-top:10px; font-size:10.5px; color:rgba(232,246,255,.75); }
+  .svc div { display:flex; justify-content:space-between; align-items:center; gap:4px; min-width:0; }
+  .svc span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .svc em { font:600 8px var(--mono); letter-spacing:.1em; font-style:normal; text-transform:uppercase; white-space:nowrap; }
+  .svc em.ok { color:var(--ok); } .svc em.warn { color:var(--warn); } .svc em.off { color:var(--dim); }
+  .clima { display:flex; align-items:center; gap:12px; margin-top:8px; }
+  .clima svg { width:64px; height:64px; flex:none; }
+  .clima .t { font-size:28px; line-height:1; color:#fff; }
+  .clima small { display:block; font-size:11px; color:var(--muted); margin-top:4px; }
+  .clima-x { display:flex; justify-content:space-between; gap:6px; margin-top:8px; font:600 8px var(--mono); letter-spacing:.12em; color:var(--muted); text-transform:uppercase; }
+  .clima-x b { display:block; font:600 12px var(--sans); letter-spacing:0; color:var(--ink); margin-top:2px; }
+  #canal { flex:1 1 auto; min-height:220px; display:flex; flex-direction:column; }
+  #canalLog { flex:1; overflow-y:auto; margin-top:10px; display:flex; flex-direction:column; gap:8px; font-size:12px; line-height:1.45; scrollbar-width:thin; }
+  #canalLog p { margin:0; color:rgba(232,246,255,.82); overflow-wrap:anywhere; }
+  #canalLog p.voce { color:rgba(232,246,255,.6); }
+  #canalLog b { color:var(--cyan); font-weight:600; }
+  #canalLog button { all:unset; cursor:pointer; } #canalLog button:hover, #canalLog button:focus-visible { color:#fff; text-decoration:underline; }
+  .corner { position:fixed; bottom:max(22px, env(safe-area-inset-bottom)); z-index:20; display:flex; align-items:center; gap:8px; }
+  #cornerL { left:22px; } #cornerR { right:22px; }
+  .ibtn { height:32px; min-width:32px; padding:0 8px; border-radius:8px; border:1px solid rgba(90,200,255,.3); background:rgba(4,20,50,.6);
+    color:var(--cyan-2); cursor:pointer; display:grid; place-items:center; font:600 9px var(--mono); letter-spacing:.2em; }
+  .ibtn:hover, .ibtn:focus-visible { border-color:var(--cyan); color:#fff; outline:none; }
+  .ibtn svg { width:15px; height:15px; } .ibtn.off { color:var(--dim); }
+  .corner .label { color:rgba(232,246,255,.7); margin-left:6px; }
+  .passos { list-style:none; margin:14px 0 0; padding:0; display:grid; gap:8px; }
+  .passos li { display:flex; align-items:center; gap:12px; font:600 11px var(--mono); letter-spacing:.2em; text-transform:uppercase; opacity:.28; transition:opacity .6s; }
+  .passos li i { width:26px; height:26px; border-radius:6px; border:1px solid var(--line); display:grid; place-items:center; font-style:normal; color:var(--muted); }
+  .passos li.on { opacity:1; } .passos li.on i { border-color:var(--cyan); color:var(--cyan); box-shadow:0 0 10px rgba(63,214,255,.4); }
+  .itens .abrir { margin-left:auto; flex:none; }
+  @media (min-width:1100px) {
+    #dock { display:none; }
+    #focus { width:min(680px, calc(100vw - 560px)); }
+  }
+  @media (max-width:1279px) { .brand span, .status .hide-md { display:none; } }
+  @media (max-width:1099px) { .col { display:none; } }
+  @media (max-width:899px) { .corner, .brand, .status { display:none; } }
+
+  /* ---------- segunda tela (/?tela=1): centro de comando em outro monitor ---------- */
+  #tela { position:fixed; inset:0; z-index:25; display:flex; flex-direction:column; }
+  body.tela #holo, body.tela .top, body.tela #state, body.tela #focus, body.tela #dock, body.tela #subs, body.tela #ask,
+  body.tela .col, body.tela .corner, body.tela .brand, body.tela .status { display:none !important; }
+  .tela-h { padding:14px 16px 10px; border-bottom:1px solid rgba(90,200,255,.18); }
+  .tela-top { display:flex; align-items:center; gap:12px; }
+  .tela-top b { font:700 16px var(--mono); letter-spacing:.45em; color:#fff; }
+  .tela-top span { font:600 9px var(--mono); letter-spacing:.22em; color:var(--cyan); text-transform:uppercase; }
+  .tela-top time { margin-left:auto; font:700 13px var(--mono); letter-spacing:.15em; color:#fff; }
+  .tela-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+  .tela-tabs button { border:1px solid rgba(90,200,255,.2); background:none; color:rgba(143,234,255,.6); border-radius:6px; padding:7px 10px; cursor:pointer;
+    font:600 9px var(--mono); letter-spacing:.2em; text-transform:uppercase; }
+  .tela-tabs button[aria-selected="true"] { border-color:var(--cyan); background:rgba(63,214,255,.1); color:var(--cyan); }
+  #telaBody { flex:1; overflow-y:auto; padding:16px; display:grid; gap:14px; align-content:start; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chips button { border:1px solid rgba(90,200,255,.25); background:none; color:var(--muted); border-radius:999px; padding:6px 12px; cursor:pointer; font:600 10px var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .chips button.on { border-color:var(--cyan); color:var(--cyan); background:rgba(63,214,255,.1); }
+  .tela-f { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 16px; border-top:1px solid rgba(90,200,255,.18);
+    font:600 9px var(--mono); letter-spacing:.2em; color:rgba(143,234,255,.8); text-transform:uppercase; }
 
   @media (max-width:700px) {
     :root { --dock-bottom: 146px; --focus-gap: 226px; }
@@ -190,17 +266,75 @@
   </div>
 </div>
 
+<div class="brand"><b>JARVIS</b><span>· Ampliize · Assistente de IA</span></div>
+<div class="status" aria-live="off">
+  <span id="netState"><i></i><span>Sistema online</span></span>
+  <span id="voiceLink" class="hide-md">Voice link · manual</span>
+  <time id="clock">--:--</time>
+</div>
+
 <div id="state">
   <div id="stateLabel">EM ESPERA</div>
+  <div class="ruler" aria-hidden="true"></div>
   <div id="meter" aria-hidden="true"></div>
 </div>
 
-<aside id="side" hidden>
-  <div class="card">
-    <div class="rotulo">AMPLIIZE · PULSO</div>
-    <div id="pulse" style="margin-top:6px"></div>
-  </div>
+<aside class="col" id="leftcol" aria-label="Sinais e serviços">
+  <section class="panel">
+    <div class="panel-h"><span>Sinal · Entrada</span><span class="chip" id="sigChip">Em espera</span></div>
+    <canvas id="sigWave" height="28"></canvas>
+  </section>
+  <section class="panel">
+    <div class="panel-h"><span>Sinal · Espectro</span><span class="chip">20Hz–20kHz</span></div>
+    <canvas id="sigSpec" height="40"></canvas>
+  </section>
+  <section class="panel">
+    <div class="panel-h"><span>Voz · Leitura</span><span class="chip" id="lerPct">0%</span></div>
+    <div class="lerbar"><i id="lerBar"></i></div>
+  </section>
+  <section class="panel">
+    <div class="panel-h"><span>Núcleo · Serviços</span><span class="chip" id="svcChip">Verificando</span></div>
+    <div class="svc" id="svc"></div>
+  </section>
+  <section class="panel" id="side" hidden>
+    <div class="panel-h"><span>Ampliize · Pulso</span></div>
+    <div id="pulse" style="margin-top:4px"></div>
+  </section>
 </aside>
+
+<aside class="col" id="rightcol" aria-label="Clima e canal">
+  <section class="panel" id="climaPanel" hidden>
+    <div class="panel-h"><span>Sensores · Clima</span><span class="chip" id="climaCidade"></span></div>
+    <div id="climaBody"></div>
+  </section>
+  <section class="panel" id="canal">
+    <div class="panel-h"><span>Jarvis · Canal ativo</span><span class="chip" id="canalChip">Pronto</span></div>
+    <div id="canalLog" aria-live="polite"></div>
+  </section>
+</aside>
+
+<div class="corner" id="cornerL">
+  <button type="button" class="ibtn" id="telasBtn" title="Abrir uma segunda tela (centro de comando) em outro monitor">TELAS</button>
+</div>
+<div class="corner" id="cornerR">
+  <button type="button" class="ibtn" id="muteBtn" title="Voz das respostas: ligar/desligar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg></button>
+  <button type="button" class="ibtn" id="musicBtn" title="Música do Jarvis: ligar/desligar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></button>
+  <span class="label" id="nuvem">Nuvem · —</span>
+</div>
+
+<div id="tela" hidden>
+  <header class="tela-h">
+    <div class="tela-top"><b>JARVIS</b><span id="telaNome">Centro de comando</span><time id="telaClock">--:--:--</time></div>
+    <nav class="tela-tabs" role="tablist" aria-label="Telas">
+      <button type="button" role="tab" data-tab="comando" aria-selected="true">Centro de comando</button>
+      <button type="button" role="tab" data-tab="noticias" aria-selected="false">Radar de notícias</button>
+      <button type="button" role="tab" data-tab="nucleo" aria-selected="false">Núcleo do sistema</button>
+      <button type="button" role="tab" data-tab="espelho" aria-selected="false">Espelho</button>
+    </nav>
+  </header>
+  <main id="telaBody" aria-live="polite"></main>
+  <footer class="tela-f"><span id="telaRodape">Centro de comando</span><button type="button" class="btn" id="telaRefresh">Atualizar dados</button><span>Monitor ativo</span></footer>
+</div>
 
 <section id="focus" hidden aria-live="polite">
   <button type="button" id="closeCard" aria-label="Fechar card">✕</button>
@@ -284,6 +418,7 @@
     mode = m;
     $('stateLabel').textContent = LABELS[m] || m.toUpperCase();
     document.body.dataset.mode = m;
+    paintVoiceLink(m);
     // O reconhecimento do "Jarvis" fica pausado enquanto ele fala ou pensa (não ouve a própria voz).
     if (m === 'speaking' || m === 'thinking' || m === 'transcribing') pauseWake();
     else if (m !== 'listening') resumeWake();
@@ -293,12 +428,89 @@
   let busy = false;
   const setBusy = (b) => { busy = b; send.disabled = b; mic.disabled = b; };
 
+  // ================= barra de status =================
+  // Relógio, conexão com o servidor e o estado da voz. Tudo medido aqui, nada inventado.
+  const two = (n) => String(n).padStart(2, '0');
+  const tickClock = () => {
+    const d = new Date();
+    $('clock').textContent = two(d.getHours()) + ':' + two(d.getMinutes());
+    $('telaClock').textContent = two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
+  };
+  tickClock();
+  setInterval(tickClock, 1000);
+  let online = true;
+  function setOnline(ok) {
+    if (ok === online) return;
+    online = ok;
+    $('netState').classList.toggle('bad', !ok);
+    $('netState').lastElementChild.textContent = ok ? 'Sistema online' : 'Sem conexão';
+    if (ok) logCanal('Jarvis', 'Conexão com o servidor restabelecida.');
+    else logCanal('Jarvis', 'Sem conexão com o servidor.');
+  }
+  addEventListener('offline', () => setOnline(false));
+  addEventListener('online', () => { if (token) refreshStatus(); });
+  const VOICE_LINK = { listening: 'ouvindo', transcribing: 'transcrevendo', thinking: 'pensando', speaking: 'falando' };
+  const CANAL_CHIP = { listening: 'Ouvindo', transcribing: 'Transcrevendo', thinking: 'Pensando', speaking: 'Falando', error: 'Atenção' };
+  const paintVoiceLink = (m) => {
+    $('voiceLink').textContent = 'Voice link · ' + (VOICE_LINK[m] || (m === 'wake' ? 'armado' : m === 'clap' ? 'palmas' : 'manual'));
+    $('canalChip').textContent = CANAL_CHIP[m] || 'Pronto';
+  };
+
+  // ================= canal ativo =================
+  // Registro da conversa na coluna da direita: o que você pediu e o que ele respondeu.
+  const logged = new WeakSet();
+  function logCanal(who, text, card) {
+    const log = $('canalLog');
+    if (!log || !text) return;
+    // Card com id (ex.: andamento de um site): atualiza a mesma linha em vez de repetir.
+    if (card?.id) [...log.children].filter((x) => x.dataset.id === card.id).forEach((x) => x.remove());
+    const p = el('p', who === 'Você' ? 'voce' : '');
+    if (card?.id) p.dataset.id = card.id;
+    p.append(el('b', null, who + ': '));
+    if (card) {
+      const b = el('button', null, text);
+      b.type = 'button';
+      b.title = 'Abrir este card de novo';
+      b.onclick = () => showCard(card);
+      p.append(b);
+    } else p.append(document.createTextNode(text));
+    log.append(p);
+    while (log.children.length > 40) log.firstElementChild.remove();
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // ================= segunda tela =================
+  // /?tela=1 abre o centro de comando em outra janela (outro monitor). A tela
+  // principal manda para ela uma cópia simples de cada card (sem funções).
+  const TELA = new URLSearchParams(location.search).has('tela');
+  let hudChannel = null;
+  try { hudChannel = new BroadcastChannel('jarvis-hud'); } catch {}
+  function mirrorCard(c) {
+    if (TELA || !hudChannel || c.tipo === 'loading') return;
+    try {
+      hudChannel.postMessage({ tipo: 'card', card: {
+        rotulo: c.rotulo || '', titulo: c.titulo || '', texto: c.texto || '', rodape: c.rodape || '',
+        destaque: c.destaque ? { valor: String(c.destaque.valor), legenda: String(c.destaque.legenda || '') } : null,
+        itens: Array.isArray(c.itens) ? c.itens.map((i) => ({ titulo: String(i.titulo || ''), detalhe: i.detalhe ? String(i.detalhe) : '', alerta: !!i.alerta })) : null,
+        em: new Date().toISOString(),
+      } });
+    } catch {}
+  }
+
   // ================= acesso =================
   let token = store.get('jarvis_token', '');
   const showLogin = (msg) => { $('login').hidden = false; $('loginMsg').textContent = msg || ''; setTimeout(() => $('pass').focus(), 30); };
   const api = async (path, init = {}) => {
     if (!token) { showLogin(); throw new Error('Digite a senha de acesso.'); }
-    const res = await fetch(path, { ...init, headers: { ...(init.headers || {}), Authorization: 'Bearer ' + token } });
+    let res;
+    try {
+      res = await fetch(path, { ...init, headers: { ...(init.headers || {}), Authorization: 'Bearer ' + token } });
+    } catch (err) {
+      if (err?.name !== 'AbortError') setOnline(false);
+      throw err;
+    }
+    // 5xx sem JSON é o proxy (Easypanel) dizendo que o Jarvis caiu; com JSON é o próprio Jarvis respondendo.
+    setOnline(res.status < 500 || (res.headers.get('content-type') || '').includes('json'));
     if (res.status === 401) { token = ''; store.del('jarvis_token'); showLogin('Senha incorreta. Tente de novo.'); throw new Error('Senha incorreta.'); }
     return res;
   };
@@ -316,8 +528,8 @@
   const trunc = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
 
   let twTimer = null;
-  function buildCard(c) {
-    const card = el('article', 'card enter' + (c.tipo ? ' ' + c.tipo : ''));
+  function buildCard(c, quiet) {
+    const card = el('article', 'card' + (quiet ? '' : ' enter') + (c.tipo ? ' ' + c.tipo : ''));
     const head = el('header', 'card-head');
     head.append(el('span', 'rotulo', c.rotulo || ''));
     if (c.tag) head.append(el('span', 'tag', c.tag));
@@ -326,7 +538,17 @@
     row.append(el('h2', 'titulo', c.titulo || ''));
     if (c.destaque) { const d = el('div', 'destaque'); d.append(el('strong', null, c.destaque.valor), el('small', null, c.destaque.legenda)); row.append(d); }
     card.append(row);
-    if (c.tipo === 'loading') {
+    if (Array.isArray(c.passos)) {
+      // Sequência de inicialização do briefing: cada passo acende quando acontece de verdade.
+      const ul = el('ul', 'passos');
+      c.passos.forEach((p, i) => {
+        const li = el('li', p.on ? 'on' : '');
+        li.append(el('i', null, p.on ? '✓' : String(i + 1).padStart(2, '0')), el('span', null, p.texto));
+        ul.append(li);
+      });
+      card.append(ul);
+    }
+    if (c.tipo === 'loading' && !c.passos) {
       const tw = el('div', 'tw');
       const tabs = el('div', 'tabs');
       const names = ['FINANCEIRO', 'ENTREGAS', 'COMERCIAL', 'CÉREBRO'];
@@ -357,6 +579,7 @@
           b.append(el('b', null, it.titulo));
           if (it.detalhe) b.append(el('small', null, it.detalhe));
           li.append(b);
+          if (it.abrir) { const a = el('button', 'btn abrir', 'Abrir'); a.type = 'button'; a.onclick = it.abrir; li.append(a); }
           ol.append(li);
         });
         card.append(ol);
@@ -378,13 +601,25 @@
     if (focusData && focusData !== c && !(c.id && focusData.id === c.id) && focusData.tipo !== 'loading') pushDock(focusData);
     const i = dockItems.findIndex((x) => x === c || (c.id && x.id === c.id));
     if (i >= 0) { dockItems.splice(i, 1); renderDock(); }
+    const same = focusData === c;
     focusData = c;
-    $('focusBody').replaceChildren(buildCard(c));
+    $('focusBody').replaceChildren(buildCard(c, same));
+    logCard(c);
+    mirrorCard(c);
     $('focus').hidden = false;
     $('focus').scrollTop = 0;
     holoLayout = 'top';
   }
+  /** Registra o card no canal ativo (no desktop a doca some e o canal reabre os cards). */
+  function logCard(c) {
+    if (logged.has(c) || c.tipo === 'loading') return;
+    logged.add(c);
+    if (c.tipo === 'erro') return logCanal('Aviso', c.titulo || '');
+    const first = c.rotulo === 'RESPOSTA' ? sentences(c.texto || '')[0] : '';
+    logCanal('Jarvis', trunc(first || [c.titulo, c.destaque?.valor].filter(Boolean).join(' · ') || c.rotulo || 'card', 160), c);
+  }
   function pushDock(c) {
+    logCard(c);
     // Cards com id (ex.: andamento de um site) substituem a versão anterior.
     const i = dockItems.findIndex((x) => x === c || (c.id && x.id === c.id));
     if (i >= 0) dockItems.splice(i, 1);
@@ -414,7 +649,15 @@
 
   // ================= legenda =================
   let subTimer = null;
+  // Voz · Leitura: quanto da resposta atual ele já leu (frase a frase).
+  let speechParts = null, readingOwner = 0;
+  const setReading = (frac) => {
+    const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
+    $('lerPct').textContent = pct + '%';
+    $('lerBar').style.width = pct + '%';
+  };
   const subtitle = (text, ms) => {
+    if (speechParts && text) { const i = speechParts.indexOf(text); if (i >= 0) setReading(i / speechParts.length); }
     $('subs').textContent = text || '';
     $('subs').classList.toggle('on', !!text);
     clearTimeout(subTimer);
@@ -684,7 +927,7 @@
     return off ? 'off' : 'on';
   }
   window.__jarvis = { ...(window.__jarvis || {}), musicCommand };
-  musicToggle.onchange = () => { store.set('jarvis_music', musicToggle.checked ? '1' : '0'); if (!musicToggle.checked) stopMusic(0.3); };
+  musicToggle.onchange = () => { store.set('jarvis_music', musicToggle.checked ? '1' : '0'); paintCorner(); if (!musicToggle.checked) stopMusic(0.3); };
   musicVolume.oninput = () => {
     store.set('jarvis_music_volume', musicVolume.value);
     if (musicPlaying()) setMusicGain(musicLevel() * (musicDucked ? DUCK : 1), 0.1);
@@ -803,9 +1046,13 @@
   async function say(text, opts = {}) {
     const voice = speakToggle.checked || !!opts.force;
     if (voice && clean(text).trim()) musicUnderSpeech();
+    const owner = ++readingOwner; // uma fala nova não tem a leitura apagada pela anterior
     try {
-      return await sayInner(text, opts);
+      const ok = await sayInner(text, opts);
+      if (ok && owner === readingOwner && speechParts) setReading(1);
+      return ok;
     } finally {
+      if (owner === readingOwner) speechParts = null;
       musicAfterSpeech();
     }
   }
@@ -813,6 +1060,8 @@
     const my = ++speakSeq;
     const parts = sentences(text);
     if (!parts.length) { pre?.abort(); return true; }
+    speechParts = parts;
+    setReading(0);
     const voice = speakToggle.checked || !!force;
     setMode('speaking');
     subtitle(parts[0]);
@@ -881,7 +1130,17 @@
     const musicOn = musicSkipOnce ? Promise.resolve(false) : startMusic();
     setBusy(true);
     setMode('thinking');
-    showCard({ tipo: 'loading', rotulo: 'BRIEFING DO DIA', titulo: 'Preparando seu briefing' });
+    // Sequência de inicialização: cada passo só acende quando aconteceu de verdade.
+    const boot = {
+      tipo: 'loading', rotulo: 'BRIEFING DO DIA', titulo: 'Preparando seu briefing',
+      passos: [{ texto: 'Presença detectada', on: true }, { texto: 'Acesso validado' }, { texto: 'Dados do dia lidos' }, { texto: 'Briefing iniciado' }, { texto: 'Panorama do dia' }],
+    };
+    const step = (i, texto) => {
+      boot.passos[i].on = true;
+      if (texto) boot.passos[i].texto = texto;
+      if (focusData === boot) showCard(boot);
+    };
+    showCard(boot);
     subtitle('');
     let pending = null;
     try {
@@ -889,15 +1148,20 @@
       setBusy(false); // daqui em diante dá para interromper (mic, Esc)
       if (my !== speakSeq) return;
       fillPulse(data);
+      step(1);
+      if (data.saudacao) boot.titulo = data.saudacao;
+      step(2, (data.cards || []).some((c) => c.id === 'crm') ? 'Dados lidos · CRM indisponível' : null);
       const texts = [data.abertura, ...data.cards.map((c) => c.fala), data.fechamento];
       let current = fetchTts(firstChunk(texts[0]), force);
       pending = current; // se interromper durante a abertura, não paga a voz
       // A trilha abre o briefing; a voz entra por cima com ela mais baixa.
+      step(3);
       if (await Promise.race([musicOn, sleep(2500).then(() => false)])) {
         const until = musicStartedAt + INTRO_MS;
         while (Date.now() < until && my === speakSeq) await sleep(100);
       }
       if (my !== speakSeq) return;
+      step(4);
       duckMusic();
       for (let i = 0; i < texts.length; i++) {
         pending = i + 1 < texts.length ? fetchTts(firstChunk(texts[i + 1]), force) : null;
@@ -976,7 +1240,7 @@
     if (n.lembretes_hoje) rows.push({ label: 'Lembretes hoje', valor: String(n.lembretes_hoje) });
     if (n.sistemas) rows.push({ label: 'Sistemas no ar', valor: n.sistemas.ok + '/' + n.sistemas.total, alerta: n.sistemas.ok < n.sistemas.total });
     if (n.riscos) rows.push({ label: 'Riscos em aberto', valor: String(n.riscos), alerta: true });
-    if (n.clima) rows.unshift({ label: n.clima.cidade, valor: n.clima.temperatura + '°' });
+    // O clima tem painel próprio (Sensores · Clima).
     if (!rows.length) return;
     $('pulse').replaceChildren(...rows.map((r) => {
       const d = el('div', 'pulse-row' + (r.alerta ? ' alerta' : ''));
@@ -993,6 +1257,7 @@
     if (busy) return;
     stopSpeaking();
     ensureOut();
+    logCanal('Você', trunc(message, 200));
     const plain = message.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
     const cmd = musicCommand(plain);
     if (cmd === 'off' || cmd === 'on') {
@@ -1069,6 +1334,7 @@
       if (!res.ok) return;
       const data = await res.json();
       setSync(data);
+      renderServices(data);
       const items = data.configuracao || [];
       const allOk = items.every((i) => i.ok || i.opcional);
       if (onlyIfMissing && allOk) return;
@@ -1085,6 +1351,105 @@
       if (!onlyIfMissing) showError(err.message);
     }
   }
+
+  // ================= núcleo · serviços =================
+  // Cada linha vem do /api/status ou do próprio navegador; nada de número decorativo.
+  let micState = 'prompt';
+  navigator.permissions?.query({ name: 'microphone' }).then((p) => {
+    micState = p.state;
+    p.onchange = () => { micState = p.state; if (lastStatus) renderServices(lastStatus); };
+  }).catch(() => {});
+  let lastStatus = null;
+  /** Linhas [nome, ok|warn|off, texto, só deste navegador?] a partir do /api/status. */
+  function serviceRows(st) {
+    const sv = st.servicos || {};
+    const cer = st.cerebro || {};
+    const brainOk = cer.obsidian ? cer.pronto && cer.ultima_sincronizacao?.ok !== false : null;
+    return [
+      ['Núcleo', 'ok', 'online'],
+      ['Escuta', SR ? (wakeToggle.checked ? 'ok' : 'off') : 'off', SR ? (wakeToggle.checked ? 'ativo' : 'desligado') : 'sem suporte', true],
+      ['Motor', sv.motor ? 'ok' : 'warn', sv.motor ? 'pronto' : 'sem chave'],
+      ['Mic', micState === 'granted' ? 'ok' : micState === 'denied' ? 'warn' : 'off', micState === 'granted' ? 'liberado' : micState === 'denied' ? 'bloqueado' : 'a pedir', true],
+      ['Fala', 'ok', sv.fala === 'openai' ? 'openai' : 'navegador'],
+      ['CRM', sv.crm ? 'ok' : 'warn', sv.crm ? 'ligado' : 'off'],
+      ['Cérebro', brainOk == null ? 'off' : brainOk ? 'ok' : 'warn', brainOk == null ? 'sem vault' : brainOk ? 'sincron.' : 'falhou'],
+      ['Estúdio', sv.estudio ? 'ok' : 'off', sv.estudio || 'sem motor'],
+      ['GitHub', sv.github ? 'ok' : 'off', sv.github ? 'leitura' : 'off'],
+      ['Sistemas', sv.sistemas_monitorados ? 'ok' : 'off', String(sv.sistemas_monitorados ?? 0)],
+    ];
+  }
+  function renderServices(st) {
+    lastStatus = st;
+    const sv = st.servicos || {};
+    const rows = serviceRows(st);
+    $('svc').replaceChildren(...rows.map(([nome, cls, txt]) => {
+      const d = el('div');
+      d.append(el('span', null, nome), el('em', cls, txt));
+      return d;
+    }));
+    const warn = rows.some((r) => r[1] === 'warn');
+    $('svcChip').textContent = warn ? 'Atenção' : 'Operacional';
+    $('nuvem').textContent = 'Nuvem · ' + (sv.motor ? st.modelo : 'sem chave');
+  }
+  async function refreshStatus() {
+    try {
+      const r = await api('/api/status');
+      if (r.ok) { const d = await r.json(); setSync(d); renderServices(d); }
+    } catch {}
+  }
+
+  // ================= sensores · clima =================
+  const fmtT = (v) => (v == null || !isFinite(v) ? '—' : Math.round(v) + '°');
+  async function refreshClima() {
+    try {
+      const r = await api('/api/clima');
+      if (!r.ok) return;
+      const { clima: c } = await r.json();
+      if (!c?.agora) return;
+      $('climaCidade').textContent = String(c.cidade || '').replace(/\s*\(.*\)$/, '');
+      const hum = Math.max(0, Math.min(100, Number(c.agora.umidade) || 0));
+      // Anel = umidade real do ar.
+      const NS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 64 64');
+      svg.setAttribute('role', 'img');
+      svg.setAttribute('aria-label', 'Umidade ' + hum + '%');
+      const circ = 2 * Math.PI * 26;
+      const mk = (attrs) => { const e = document.createElementNS(NS, 'circle'); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+      svg.append(
+        mk({ cx: 32, cy: 32, r: 26, fill: 'none', stroke: 'rgba(90,200,255,.15)', 'stroke-width': 4 }),
+        mk({ cx: 32, cy: 32, r: 26, fill: 'none', stroke: 'var(--cyan)', 'stroke-width': 4, 'stroke-linecap': 'round', 'stroke-dasharray': (circ * hum / 100).toFixed(1) + ' ' + circ.toFixed(1), transform: 'rotate(-90 32 32)' }),
+      );
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', 32); t.setAttribute('y', 36); t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('fill', '#e8f6ff'); t.setAttribute('font-size', 12); t.setAttribute('font-family', 'ui-monospace, monospace');
+      t.textContent = hum + '%';
+      svg.append(t);
+      const box = el('div', 'clima');
+      const info = el('div');
+      info.append(el('div', 't', fmtT(c.agora.temperatura)), el('small', null, c.agora.condicao || ''), el('small', null, 'Sensação ' + fmtT(c.agora.sensacao)));
+      box.append(svg, info);
+      const x = el('div', 'clima-x');
+      const cell = (k, v) => { const d = el('div', null, k); d.append(el('b', null, v)); return d; };
+      x.append(cell('Mín', fmtT(c.hoje?.minima)), cell('Máx', fmtT(c.hoje?.maxima)), cell('Chuva', c.hoje?.chance_de_chuva == null ? '—' : c.hoje.chance_de_chuva + '%'));
+      $('climaBody').replaceChildren(box, x);
+      $('climaPanel').hidden = false;
+    } catch {}
+  }
+
+  // ================= cantos =================
+  $('telasBtn').onclick = () => {
+    const w = window.open('/?tela=1', 'jarvis-tela', 'popup,width=540,height=960');
+    if (!w) subtitle('O navegador bloqueou a janela. Libere pop-ups para este site.', 5000);
+  };
+  const paintCorner = () => {
+    $('muteBtn').classList.toggle('off', !speakToggle.checked);
+    $('muteBtn').setAttribute('aria-pressed', String(speakToggle.checked));
+    $('musicBtn').classList.toggle('off', !musicToggle.checked);
+    $('musicBtn').setAttribute('aria-pressed', String(musicToggle.checked));
+  };
+  $('muteBtn').onclick = () => { speakToggle.checked = !speakToggle.checked; speakToggle.onchange(); };
+  $('musicBtn').onclick = () => { musicToggle.checked = !musicToggle.checked; musicToggle.onchange(); };
 
   // ================= HUD =================
   const toggleHud = (open) => {
@@ -1103,9 +1468,11 @@
     toggleHud(false); stopSpeaking(); disarmWake(); pauseWake();
     token = ''; store.del('jarvis_token'); showLogin();
   };
-  speakToggle.onchange = () => { store.set('jarvis_speak', speakToggle.checked ? '1' : '0'); if (!speakToggle.checked) { try { speechSynthesis.cancel(); } catch {} } };
+  speakToggle.onchange = () => { store.set('jarvis_speak', speakToggle.checked ? '1' : '0'); paintCorner(); if (!speakToggle.checked) { try { speechSynthesis.cancel(); } catch {} } };
+  paintCorner();
   clapThresh.oninput = () => store.set('jarvis_clap_thresh', clapThresh.value);
   document.addEventListener('keydown', (e) => {
+    if (TELA) return;
     if (e.key === 'Escape') { stopSpeaking(); subtitle(''); if (!$('hud').hidden) toggleHud(false); else if (focusData) closeFocus(); if (!recording) restMode(); }
     const typing = /INPUT|TEXTAREA|BUTTON|SELECT/.test(document.activeElement?.tagName || '');
     if (e.code === 'Space' && !typing && $('login').hidden) { e.preventDefault(); mic.click(); }
@@ -1235,7 +1602,7 @@
     askJarvis(text, { spoken: true });
   }
   function startWake() {
-    if (!wakeActive() || wakePaused || wakeBlocked || rec || !token || document.hidden) return;
+    if (TELA || !wakeActive() || wakePaused || wakeBlocked || rec || !token || document.hidden) return;
     try {
       rec = new SR();
       rec.lang = 'pt-BR';
@@ -1288,6 +1655,7 @@
     store.set('jarvis_wake', wakeToggle.checked ? '1' : '0');
     if (wakeToggle.checked) { wakePaused = false; startWake(); } else { disarmWake(); pauseWake(); wakePaused = false; }
     if (!busy && mode !== 'speaking') restMode();
+    if (lastStatus) renderServices(lastStatus);
   };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) startWake(); });
   // Alguns navegadores só liberam o reconhecimento depois de um toque na página.
@@ -1314,7 +1682,7 @@
   const resting = () => !busy && !recording && !armed && ['idle', 'wake', 'clap', 'error'].includes(mode);
   let checkingReminders = false;
   async function checkReminders() {
-    if (!token || checkingReminders) return;
+    if (TELA || !token || checkingReminders) return;
     checkingReminders = true;
     try {
       const since = store.get('jarvis_lembretes_desde', new Date(Date.now() - 12 * 3600_000).toISOString());
@@ -1408,7 +1776,77 @@
     return 0.04;
   };
 
-  const holo = (() => {
+  // ================= sinal · entrada e espectro =================
+  // Desenha o áudio real: o microfone quando ele ouve, a voz dele quando fala. Parado = linha reta.
+  const signals = (() => {
+    const wave = $('sigWave'), spec = $('sigSpec');
+    const wctx = wave.getContext('2d'), sctx = spec.getContext('2d');
+    let fbuf = null, tbuf = null, live = null;
+    const fit = (cv, c) => {
+      const w = cv.clientWidth, h = Number(cv.getAttribute('height'));
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      if (!w) return null;
+      if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.height = h + 'px'; }
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return [w, h];
+    };
+    const source = () => {
+      if (mode === 'speaking' && outAnalyser && !player.paused) return outAnalyser;
+      if (analyser && (recording || clapLoop)) return analyser;
+      return null;
+    };
+    return function draw() {
+      if (wave.offsetParent === null) return; // coluna escondida (tela estreita)
+      const src = source();
+      if (live !== !!src) { live = !!src; $('sigChip').textContent = live ? 'Ao vivo' : 'Em espera'; }
+      const a = fit(wave, wctx), b = fit(spec, sctx);
+      if (!a || !b) return;
+      const [w, h] = a, [sw, sh] = b;
+      wctx.clearRect(0, 0, w, h);
+      sctx.clearRect(0, 0, sw, sh);
+      const N = 34, gap = 2, bw = (sw - gap * (N - 1)) / N;
+      if (!src) {
+        wctx.strokeStyle = 'rgba(63,214,255,.45)';
+        wctx.beginPath(); wctx.moveTo(0, h / 2); wctx.lineTo(w, h / 2); wctx.stroke();
+        sctx.fillStyle = 'rgba(63,214,255,.22)';
+        for (let i = 0; i < N; i++) sctx.fillRect(i * (bw + gap), sh - 1, bw, 1);
+        return;
+      }
+      if (!tbuf || tbuf.length !== src.fftSize) tbuf = new Uint8Array(src.fftSize);
+      if (!fbuf || fbuf.length !== src.frequencyBinCount) fbuf = new Uint8Array(src.frequencyBinCount);
+      src.getByteTimeDomainData(tbuf);
+      src.getByteFrequencyData(fbuf);
+      wctx.strokeStyle = '#3fd6ff';
+      wctx.lineWidth = 1.2;
+      wctx.shadowColor = 'rgba(63,214,255,.8)';
+      wctx.shadowBlur = 6;
+      wctx.beginPath();
+      const step = tbuf.length / w;
+      for (let x = 0; x < w; x++) {
+        const v = (tbuf[Math.floor(x * step)] - 128) / 128;
+        const y = h / 2 + v * (h / 2) * 1.6;
+        if (x) wctx.lineTo(x, y); else wctx.moveTo(x, y);
+      }
+      wctx.stroke();
+      wctx.shadowBlur = 0;
+      // Faixas em escala logarítmica, de 20 Hz a 20 kHz (limitado ao que o aparelho amostra).
+      const ctxRate = (src.context && src.context.sampleRate) || 48000;
+      const nyq = ctxRate / 2, bins = fbuf.length;
+      sctx.fillStyle = '#3fd6ff';
+      for (let i = 0; i < N; i++) {
+        const f0 = 20 * Math.pow(1000, i / N), f1 = 20 * Math.pow(1000, (i + 1) / N);
+        const b0 = Math.min(bins - 1, Math.floor((f0 / nyq) * bins)), b1 = Math.min(bins, Math.max(b0 + 1, Math.ceil((f1 / nyq) * bins)));
+        let m = 0;
+        for (let k = b0; k < b1; k++) if (fbuf[k] > m) m = fbuf[k];
+        const bh = Math.max(1, (m / 255) * sh);
+        sctx.globalAlpha = 0.45 + 0.55 * (m / 255);
+        sctx.fillRect(i * (bw + gap), sh - bh, bw, bh);
+      }
+      sctx.globalAlpha = 1;
+    };
+  })();
+
+  const holo = TELA ? null : (() => {
     const cv = $('holo'), ctx = cv.getContext('2d');
     let W = 0, H = 0;
     const resize = () => {
@@ -1569,6 +2007,35 @@
       ctx.restore();
     }
 
+    // Órbita externa tracejada com quatro nós de luz (reage à voz).
+    function orbit(t, amp, cx, cy, R, hue) {
+      const r = R * 1.18;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.setLineDash([2, 7]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = `hsla(${hue},100%,70%,${0.18 + amp * 0.25})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r, r * 0.36, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const spin = reduceMotion ? 0 : t * 0.00018;
+      for (let i = 0; i < 4; i++) {
+        const a = spin + i * (Math.PI / 2);
+        const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r * 0.36;
+        const front = Math.sin(a) > 0; // nós na frente brilham mais
+        const size = (front ? 3 : 2) + amp * 3;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, size * 4);
+        g.addColorStop(0, `hsla(${hue},100%,80%,${front ? 0.9 : 0.45})`);
+        g.addColorStop(1, `hsla(${hue},100%,60%,0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x, y, size * 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#eafcff';
+        ctx.beginPath(); ctx.arc(x, y, size * 0.45, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+
     let frameN = 0;
     function frame(t) {
       requestAnimationFrame(frame);
@@ -1594,8 +2061,10 @@
       rings(t, ampS, cx, cy, R, hue, speed);
       emitter(t, ampS, cx, cy + bh * 0.62, bw, hue);
       chameleon(t, ampS, cx, cy, bw, bh, hue);
+      orbit(t, ampS, cx, cy, R, hue);
       // medidor abaixo do status
       if (frameN % 2 === 0) {
+        signals();
         for (let i = 0; i < BARS; i++) {
           const mid = 1 - Math.abs(i - (BARS - 1) / 2) / (BARS / 2);
           const v = 2 + ampS * 10 * mid * (0.6 + 0.4 * Math.abs(Math.sin(t * 0.013 + i * 1.7)));
@@ -1734,7 +2203,124 @@
     } catch {}
   }
 
+  // ================= segunda tela: abas =================
+  const TELA_TABS = { comando: 'Centro de comando', noticias: 'Radar de notícias', nucleo: 'Núcleo do sistema', espelho: 'Espelho da tela principal' };
+  const NEWS_TOPICS = ['Marketing digital', 'Inteligência artificial', 'Aracaju', 'Economia'];
+  let telaTab = 'comando', newsTopic = NEWS_TOPICS[0], telaMirror = null, telaSeq = 0;
+  const getJson = async (path) => {
+    const r = await api(path);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Sem resposta (' + r.status + ').');
+    return d;
+  };
+  const errCard = (rotulo, err) => ({ tipo: 'erro', rotulo, titulo: err?.message || 'Sem resposta.' });
+  const dataHora = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  async function telaCards(tab) {
+    if (tab === 'comando') {
+      const [op, lem] = await Promise.allSettled([getJson('/api/operacao'), getJson('/api/lembretes')]);
+      const out = [];
+      if (op.status === 'fulfilled') {
+        const o = op.value;
+        out.push({
+          rotulo: 'OPERAÇÃO · MONITOR', titulo: 'Operação ' + (STATE_TEXT[o.geral] || ''),
+          destaque: { valor: STATE_ICON[o.geral] || '⚪', legenda: 'geral' },
+          itens: (o.areas || []).map((a) => ({ titulo: (STATE_ICON[a.estado] || '⚪') + ' ' + a.nome + ' · ' + a.resumo, detalhe: (a.itens || []).slice(0, 3).join(' · ') || undefined, alerta: a.estado === 'critico' || a.estado === 'atencao' })),
+        });
+      } else out.push(errCard('OPERAÇÃO · MONITOR', op.reason));
+      if (lem.status === 'fulfilled') {
+        const list = lem.value.lembretes || [];
+        out.push({ rotulo: 'AGENDA TÁTICA', titulo: list.length ? list.length + (list.length === 1 ? ' lembrete em aberto' : ' lembretes em aberto') : 'Agenda livre',
+          itens: list.slice(0, 12).map((l) => ({ titulo: l.texto, detalhe: dataHora(l.quando), alerta: Date.parse(l.quando) < Date.now() })), vazio: 'Nenhum lembrete em aberto.' });
+      } else out.push(errCard('AGENDA TÁTICA', lem.reason));
+      return out;
+    }
+    if (tab === 'noticias') {
+      try {
+        const d = await getJson('/api/noticias?tema=' + encodeURIComponent(newsTopic));
+        return [{ rotulo: 'RADAR · ' + newsTopic, titulo: (d.noticias || []).length + ' manchetes recentes',
+          itens: (d.noticias || []).map((n) => ({ titulo: n.titulo, detalhe: [n.fonte, n.publicado ? dataHora(n.publicado) : ''].filter(Boolean).join(' · '), abrir: /^https:\/\//.test(n.link || '') ? () => openSafe(n.link) : null })),
+          vazio: 'Nada encontrado agora.', rodape: 'fonte: Google Notícias (RSS)' }];
+      } catch (err) { return [errCard('RADAR DE NOTÍCIAS', err)]; }
+    }
+    if (tab === 'nucleo') {
+      const [sis, st, aud] = await Promise.allSettled([getJson('/api/sistemas'), getJson('/api/status'), getJson('/api/auditoria?dias=1')]);
+      const out = [];
+      if (st.status === 'fulfilled') {
+        const v = st.value, sv = v.servicos || {};
+        const sync = v.cerebro?.ultima_sincronizacao;
+        out.push({ rotulo: 'NÚCLEO · SERVIÇOS', titulo: 'Motor: ' + (v.servicos?.motor ? v.modelo : 'sem chave da OpenAI'),
+          itens: serviceRows(v).filter((r) => !r[3] && r[0] !== 'Núcleo').map(([nome, cls, txt]) => ({
+            titulo: nome + ' · ' + txt,
+            detalhe: nome === 'Cérebro' && sync?.at ? 'última sincronização: ' + dataHora(sync.at) : undefined,
+            alerta: cls === 'warn',
+          })) });
+      } else out.push(errCard('NÚCLEO · SERVIÇOS', st.reason));
+      if (sis.status === 'fulfilled') {
+        const list = sis.value.sistemas || [];
+        const ok = list.filter((x) => x.status === 'ok').length;
+        out.push({ rotulo: 'SISTEMAS MONITORADOS', titulo: list.length ? ok + ' de ' + list.length + ' no ar' : 'Nenhum sistema na lista',
+          destaque: list.length ? { valor: ok + '/' + list.length, legenda: 'no ar' } : null,
+          itens: list.map((x) => ({ titulo: (x.status === 'ok' ? '🟢 ' : x.status === 'atencao' ? '🟡 ' : '🔴 ') + x.nome, detalhe: [x.ms != null ? x.ms + ' ms' : '', x.uptime_24h != null ? x.uptime_24h + '% em 24 h' : '', x.detalhe || ''].filter(Boolean).join(' · ') || undefined, alerta: x.status !== 'ok' })),
+          vazio: 'Cadastre em _jarvis/sistemas.md no cérebro.' });
+      } else out.push(errCard('SISTEMAS MONITORADOS', sis.reason));
+      if (aud.status === 'fulfilled') {
+        const list = aud.value.auditoria || [];
+        out.push({ rotulo: 'AUDITORIA · 24 H', titulo: list.length + (list.length === 1 ? ' ação registrada' : ' ações registradas'),
+          itens: list.slice(0, 15).map((a) => ({ titulo: a.ferramenta + (a.ok ? '' : ' (falhou)'), detalhe: dataHora(a.quando) + ' · ' + a.ms + ' ms', alerta: !a.ok })), vazio: 'Nada registrado hoje.' });
+      } else out.push(errCard('AUDITORIA', aud.reason));
+      return out;
+    }
+    return [telaMirror || { rotulo: 'ESPELHO', titulo: 'Aguardando a tela principal', texto: 'Cada card que aparecer na tela principal do Jarvis aparece aqui também.' }];
+  }
+  async function renderTela() {
+    const my = ++telaSeq;
+    const tab = telaTab;
+    $('telaNome').textContent = TELA_TABS[tab];
+    $('telaRodape').textContent = TELA_TABS[tab] + ' · atualizado ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const head = [];
+    if (tab === 'noticias') {
+      const chips = el('div', 'chips');
+      for (const t of NEWS_TOPICS) {
+        const b = el('button', t === newsTopic ? 'on' : '', t);
+        b.type = 'button';
+        b.setAttribute('aria-pressed', String(t === newsTopic));
+        b.onclick = () => { newsTopic = t; renderTela(); };
+        chips.append(b);
+      }
+      head.push(chips);
+    }
+    if (!$('telaBody').children.length || $('telaBody').dataset.tab !== tab) $('telaBody').replaceChildren(...head, el('p', 'vazio', 'Carregando…'));
+    $('telaBody').dataset.tab = tab;
+    let cards;
+    try { cards = await telaCards(tab); } catch (err) { cards = [errCard(TELA_TABS[tab], err)]; }
+    if (my !== telaSeq) return;
+    $('telaBody').replaceChildren(...head, ...cards.map((c) => buildCard(c, true)));
+  }
+  let telaStarted = false;
+  function initTela() {
+    if (telaStarted) return renderTela(); // novo login na mesma janela: não duplica timers nem ouvintes
+    telaStarted = true;
+    document.querySelectorAll('.tela-tabs button').forEach((b) => {
+      b.onclick = () => {
+        telaTab = b.dataset.tab;
+        document.querySelectorAll('.tela-tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+        renderTela();
+      };
+    });
+    $('telaRefresh').onclick = () => renderTela();
+    hudChannel?.addEventListener('message', (e) => {
+      if (e.data?.tipo !== 'card' || !e.data.card) return;
+      const c = e.data.card;
+      telaMirror = { ...c, destaque: c.destaque || undefined, itens: c.itens || undefined, rodape: (c.rodape ? c.rodape + ' · ' : '') + 'recebido ' + dataHora(c.em) };
+      if (telaTab === 'espelho') renderTela();
+    });
+    renderTela();
+    // A cada 5 min (o monitor da operação consulta o CRM inteiro); "Atualizar dados" busca na hora.
+    setInterval(() => { if (token && !document.hidden && telaTab !== 'espelho') renderTela(); }, 5 * 60_000);
+  }
+
   function afterLogin() {
+    if (TELA) { initTela(); return; }
     resumeStudio();
     wakePaused = false;
     startWake();
@@ -1745,6 +2331,13 @@
     showSetup(true);
     // Preenche o painel lateral sem falar nada.
     loadBriefingData().then(fillPulse).catch(() => {});
+    refreshClima();
+  }
+  if (TELA) { document.body.classList.add('tela'); $('tela').hidden = false; document.title = 'Jarvis · Telas'; }
+  else {
+    logCanal('Jarvis', 'Sistema online. Pronto para ouvir.');
+    setInterval(() => { if (token && !document.hidden) refreshStatus(); }, 120_000);
+    setInterval(() => { if (token && !document.hidden) refreshClima(); }, 15 * 60_000);
   }
   restMode();
   if (token) afterLogin(); else showLogin();
