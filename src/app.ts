@@ -257,13 +257,25 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
   };
 
   app.get("/api/status", async (c) => {
-    const crm = await checkCrm();
-    const brainReady = brain.git ? await brain.git.isReady() : false;
+    const [crm, brainReady, systems] = await Promise.all([
+      checkCrm(),
+      brain.git ? brain.git.isReady() : false,
+      skills.monitor!.systems().catch(() => []),
+    ]);
     return c.json({
       modelo: config.openaiModel,
       voz: { ouvir: config.voice.sttModel, falar: `${config.voice.ttsModel}/${config.voice.ttsVoice}` },
       cerebro: brain.git ? { obsidian: true, pronto: brainReady, ultima_sincronizacao: brain.git.lastSync } : { obsidian: false },
       conectores: connectors.map((k) => k.id),
+      // Painel "Núcleo · Serviços" do HUD: só o que é verdade agora.
+      servicos: {
+        motor: !chatKeyMissing,
+        crm: !!crm?.ok,
+        fala: config.voice.apiKey ? "openai" : "navegador",
+        estudio: engine ? (engine instanceof ClaudeCreative ? "claude" : "openai") : null,
+        github: !!config.github,
+        sistemas_monitorados: systems.length,
+      },
       // Lista do que está pronto e do que falta, para a tela de configuração.
       configuracao: [
         {
@@ -377,6 +389,23 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
 
   // Lembretes: a HUD pergunta a cada 30 s quais venceram e avisa em voz.
   const reminderView = (r: { id: string; texto: string; quando: string; status: string }) => ({ id: r.id, texto: r.texto, quando: r.quando, status: r.status });
+  // Painéis do HUD (sensores de clima e radar de notícias), com os mesmos serviços das habilidades.
+  app.get("/api/clima", async (c) => {
+    try {
+      return c.json({ clima: await skills.weather.get(config.city) });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Clima indisponível." }, 502);
+    }
+  });
+  app.get("/api/noticias", async (c) => {
+    const tema = (c.req.query("tema") ?? "").trim().slice(0, 80);
+    try {
+      return c.json({ tema, noticias: await skills.news.search(tema || null) });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Notícias indisponíveis." }, 502);
+    }
+  });
+
   app.get("/api/lembretes", async (c) => c.json({ lembretes: (await skills.reminders.open()).map(reminderView) }));
   // Sem efeito colateral: a tela manda até onde já avisou (desde) e guarda o "agora" devolvido.
   app.get("/api/lembretes/avisos", async (c) => {
