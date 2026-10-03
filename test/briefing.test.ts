@@ -99,9 +99,23 @@ test("cérebro: pendências abertas sem Markdown e contagem da inbox", async () 
 test("rota /api/briefing: pede o recurso briefing ao CRM, exige senha, e a imagem do camaleão é pública", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "jarvis-"));
   await mkdir(path.join(dataDir, "brain"), { recursive: true });
-  let asked = "";
+  const asked: string[] = [];
   const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-    asked = JSON.parse(String(init!.body)).resource;
+    const { resource } = JSON.parse(String(init!.body));
+    asked.push(resource);
+    if (resource === "agenda") {
+      return json({
+        resource,
+        data: {
+          de: "2026-09-30", ate: "2026-09-30", dias: 1, proxima_reuniao: null,
+          contagem: { reunioes: 1, prazos: 1, cobrancas: 0, pagamentos: 0, follow_ups: 0 },
+          eventos: [
+            { tipo: "reuniao", data: "2026-09-30", hora: "09:30", titulo: "Reunião · Clínica Sorriso", detalhe: "presencial", local: "presencial", link: null, status: "scheduled" },
+            { tipo: "prazo", data: "2026-09-30", hora: null, titulo: "Entregar layout", detalhe: "Site Sorriso", status: "todo" },
+          ],
+        },
+      });
+    }
     return json({ resource: "briefing", data: crm() });
   }) as typeof fetch;
   const config = loadConfig({
@@ -115,9 +129,12 @@ test("rota /api/briefing: pede o recurso briefing ao CRM, exige senha, e a image
   assert.equal((await app.request("/api/briefing")).status, 401);
   const res = await app.request("/api/briefing", { headers: auth });
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { cards: { id: string }[]; abertura: string };
-  assert.equal(asked, "briefing");
-  assert.equal(body.cards[0]!.id, "dinheiro");
+  const body = (await res.json()) as { cards: { id: string; fala: string; itens: { titulo: string }[] }[]; abertura: string };
+  assert.ok(asked.includes("briefing") && asked.includes("agenda"), asked.join(","));
+  // Agenda do CRM vem antes do dinheiro, com hora falada do jeito certo.
+  assert.deepEqual(body.cards.slice(0, 2).map((c) => c.id), ["agenda", "dinheiro"]);
+  assert.match(body.cards[0]!.fala, /reunião com Clínica Sorriso, às 9h30/);
+  assert.deepEqual(body.cards[0]!.itens.map((i) => i.titulo), ["09:30 · Reunião · Clínica Sorriso", "— · Prazo: Entregar layout"]);
   assert.match(body.abertura, /Davy/);
 
   const png = await app.request("/camaleao.png");

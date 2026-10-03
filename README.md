@@ -142,6 +142,20 @@ No Mac é igual (Git já vem com o Xcode Command Line Tools).
 | Ligar/desligar voz e música | ícones do canto inferior direito (ou GERENCIAR HUD) |
 | Voz, modo palmas, configuração, nova conversa, sair | **GERENCIAR HUD** |
 
+### Painéis do CRM: agenda, financeiro e comercial
+
+Tudo vem do CRM da Ampliize (recursos `agenda`, `finance_history` e `sales_history` da integration-api). O Jarvis não guarda nem estima número.
+
+| Comando | O que abre |
+|---|---|
+| "minha agenda" · "abre a agenda" | Próximos 7 dias: reuniões (agendamentos do CRM), prazos de tarefas, cobranças, contas a pagar e follow-ups, com a próxima reunião em destaque e botão **Entrar** quando tem link |
+| "abre meu painel financeiro" | 12 meses por competência (recebido × custos pagos) + os 2 próximos meses já lançados (hachurados, "previsto"), receita recorrente, a receber, vencido e resultado |
+| "mostra o painel comercial" | 6 meses de leads novos e de ganhos × perdidos, funil aberto e conversão |
+
+Perguntas como "o que tenho amanhã?" ou "quando é minha próxima reunião?" vão para a IA, que consulta a agenda do CRM e os lembretes. Ela também pode abrir o painel. O briefing da manhã ganhou o card **Agenda · hoje**. Na segunda tela, abas **Agenda tática** e **Financeiro**. Cada gráfico tem tooltip (mouse e teclado) e **Ver tabela** com todos os números.
+
+Em GERENCIAR HUD → **Fontes de dados**, cada fonte aparece com o estado real: *respondendo*, *chave configurada*, *ainda não consultado*, *com falha*, *desligado* ou *ainda não integrado* (WhatsApp, e-mail). Também mostra a variável que liga cada uma.
+
 ### Central de comando (PC, a partir de 1100 px)
 
 Inspirada em jarvis.lucasvictor.ai, com uma regra: **o Jarvis organiza, mas não inventa dados**.
@@ -375,6 +389,7 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET | `/api/conversations/:id` | Mensagens de uma conversa |
 | GET | `/api/connectors` | Projetos conectados e ferramentas |
 | GET | `/api/status` | Modelo, voz, estado do cérebro (Obsidian) e `servicos` (motor, CRM, fala, estúdio, GitHub, sistemas) |
+| GET | `/api/painel/:tipo` | Painel do HUD (`agenda`, `financeiro` ou `comercial`), lido do CRM (cache de 60 s) |
 | GET | `/api/clima` | Clima agora, hoje e amanhã na cidade do `JARVIS_CITY` |
 | GET | `/api/noticias` | Manchetes recentes (`?tema=`, até 80 caracteres) |
 | GET | `/api/briefing` | Briefing do dia: `{ saudacao, abertura, cards[], fechamento, atencao, numeros }` |

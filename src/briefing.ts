@@ -7,6 +7,7 @@ import type { AgentRun, Review } from "./skills/guard.js";
 import type { SystemCheck } from "./skills/monitor.js";
 import type { Reminder } from "./skills/reminders.js";
 import type { Weather } from "./skills/weather.js";
+import type { Agenda, AgendaEvent } from "./skills/panels.js";
 
 /**
  * Briefing do dia: junta o CRM (recurso "briefing" da integration-api) e as
@@ -261,6 +262,30 @@ function weatherCard(w: Weather): BriefingCard {
   };
 }
 
+/** Agenda de hoje no CRM: reuniões, prazos de tarefas e follow-ups (cobranças e contas já têm card próprio). */
+function agendaCard(agenda: Agenda): BriefingCard | null {
+  if (!Array.isArray(agenda?.eventos) || typeof agenda.de !== "string") return null; // resposta fora do formato
+  const list = agenda.eventos.filter((e) => e.data === agenda.de && (e.tipo === "reuniao" || e.tipo === "prazo" || e.tipo === "follow_up"));
+  if (!list.length) return null;
+  const meetings = list.filter((e) => e.tipo === "reuniao");
+  const when = (e: AgendaEvent) => (e.hora ? `às ${e.hora.replace(/^0(\d)/, "$1").replace(":00", "h").replace(/:(\d\d)$/, "h$1")}` : "sem hora marcada");
+  const label: Record<string, string> = { reuniao: "Reunião", prazo: "Prazo", follow_up: "Follow-up" };
+  return {
+    id: "agenda",
+    rotulo: "AGENDA · HOJE",
+    titulo: meetings.length ? (meetings.length === 1 ? "Uma reunião hoje" : `${meetings.length} reuniões hoje`) : "Compromissos de hoje",
+    destaque: { valor: String(list.length), legenda: list.length === 1 ? "compromisso" : "compromissos" },
+    itens: list.slice(0, 8).map((e) => ({
+      titulo: `${e.hora ?? "—"} · ${e.tipo === "reuniao" ? e.titulo : `${label[e.tipo]}: ${e.titulo.replace(/^Follow-up · /, "")}`}`,
+      detalhe: e.detalhe ?? undefined,
+    })),
+    fala: meetings.length
+      ? `Na agenda de hoje: ${spokenList(meetings.slice(0, 3).map((e) => `${e.titulo.replace(/^Reunião · /, "reunião com ")}, ${when(e)}`))}.` +
+        (list.length > meetings.length ? ` E mais ${list.length - meetings.length === 1 ? "um prazo ou follow-up" : `${list.length - meetings.length} prazos e follow-ups`}.` : "")
+      : `Hoje não tem reunião marcada no CRM; ${list.length === 1 ? "tem um prazo ou follow-up" : `tem ${list.length} prazos e follow-ups`}.`,
+  };
+}
+
 /** Lembretes de hoje e os que passaram da hora sem ser concluídos (esses contam como atenção). */
 function remindersCard(list: Reminder[], tz: string, now: Date): BriefingCard | null {
   if (!list.length) return null;
@@ -342,6 +367,8 @@ export interface BuildInput {
   sistemas?: SystemCheck[] | null;
   /** Riscos em aberto (_jarvis/alertas.md). */
   alertas?: Alert[];
+  /** Agenda de hoje no CRM (null = indisponível). */
+  agenda?: Agenda | null;
   /** Rascunhos dos agentes de IA (null = não deu para ler) e as revisões do guardião. */
   agentes?: { rascunhos: AgentRun[] | null; revisoes: Review[] };
   ownerName: string;
@@ -357,6 +384,8 @@ export function buildBriefing(input: BuildInput): Briefing {
   const cards: BriefingCard[] = [];
   let atencao = 0;
   if (input.clima) cards.push(weatherCard(input.clima));
+  const agenda = input.agenda ? agendaCard(input.agenda) : null;
+  if (agenda) cards.push(agenda);
   const reminders = remindersCard(input.lembretes ?? [], tz, now);
   if (reminders) cards.push(reminders);
   const lateReminders = (input.lembretes ?? []).filter((r) => Date.parse(r.quando) < now.getTime()).length;
@@ -427,7 +456,14 @@ const endOfToday = (now: Date, timeZone: string) => {
 };
 
 /** Junta tudo o que o briefing e o monitor da operação usam (em paralelo). */
-export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: typeof fetch, now = new Date(), skills?: Skills): Promise<BuildInput> {
+export async function gatherOperation(
+  config: Config,
+  brain: Brain,
+  fetchImpl?: typeof fetch,
+  now = new Date(),
+  skills?: Skills,
+  { withAgenda = false }: { withAgenda?: boolean } = {},
+): Promise<BuildInput> {
   let crmError: string | null = null;
   // CRM, clima e lembretes em paralelo; clima fora do ar não derruba o briefing.
   // Sistemas: usa o último teste (até 10 min); se precisar testar, espera no máximo 6 s.
@@ -438,7 +474,7 @@ export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: 
   const agentes = guard && config.ampliize
     ? Promise.all([guard.drafts({ dias: 7 }).catch(() => null), guard.stored().catch(() => [])]).then(([rascunhos, revisoes]) => ({ rascunhos, revisoes }))
     : Promise.resolve(undefined);
-  const [crm, clima, lembretes, pendencias, inbox, sistemas, alertas, agentesData] = await Promise.all([
+  const [crm, clima, lembretes, pendencias, inbox, sistemas, alertas, agentesData, agenda] = await Promise.all([
     config.ampliize
       ? (callResource({ ...config.ampliize, fetchImpl, timeoutMs: 15_000 }, "briefing") as Promise<CrmBriefing>).catch((err) => {
           crmError = err instanceof ResourceApiError ? err.message : "falha na consulta";
@@ -452,6 +488,8 @@ export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: 
     systemsStatus,
     skills?.alerts ? skills.alerts.open().catch(() => []) : Promise.resolve([]),
     agentes,
+    // Só o briefing usa a agenda; a mesma leitura de 7 dias do painel (cache de 60 s), filtrada para hoje no card.
+    withAgenda && skills?.panels?.configured ? skills.panels.panel("agenda").then((a) => a as Agenda).catch(() => null) : Promise.resolve(null),
   ]);
   return {
     crm,
@@ -464,6 +502,7 @@ export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: 
     sistemas,
     alertas,
     agentes: agentesData,
+    agenda,
     ownerName: config.ownerName,
     timeZone: config.timeZone,
     now,
@@ -471,7 +510,7 @@ export async function gatherOperation(config: Config, brain: Brain, fetchImpl?: 
 }
 
 export async function loadBriefing(config: Config, brain: Brain, fetchImpl?: typeof fetch, now = new Date(), skills?: Skills): Promise<Briefing> {
-  return buildBriefing(await gatherOperation(config, brain, fetchImpl, now, skills));
+  return buildBriefing(await gatherOperation(config, brain, fetchImpl, now, skills, { withAgenda: true }));
 }
 
 // ---------------------------------------------------------------- monitor da operação

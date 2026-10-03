@@ -20,7 +20,7 @@ const NOW = new Date("2026-09-30T12:00:00Z"); // 09:00 em Aracaju
 
 const GEO = { results: [{ name: "Aracaju", admin1: "Sergipe", latitude: -10.9, longitude: -37.07 }] };
 const FORECAST = {
-  current: { temperature_2m: 27.4, apparent_temperature: 29.1, relative_humidity_2m: 70, weather_code: 2 },
+  current: { temperature_2m: 27.4, apparent_temperature: 29.1, relative_humidity_2m: 70, wind_speed_10m: 12.6, weather_code: 2 },
   daily: { temperature_2m_max: [30.2, 29.6], temperature_2m_min: [23.3, 23.9], precipitation_probability_max: [20, 55], weather_code: [2, 61] },
 };
 const weatherFetch = (calls: string[] = []) =>
@@ -76,7 +76,7 @@ test("clima: Open-Meteo vira dados em português, fica em cache e não inventa 0
   const data = await w.get("Aracaju");
   assert.deepEqual(data, {
     cidade: "Aracaju (Sergipe)",
-    agora: { temperatura: 27, sensacao: 29, umidade: 70, condicao: "parcialmente nublado" },
+    agora: { temperatura: 27, sensacao: 29, umidade: 70, vento: 13, condicao: "parcialmente nublado" },
     hoje: { minima: 23, maxima: 30, chance_de_chuva: 20 },
     amanha: { minima: 24, maxima: 30, chance_de_chuva: 55, condicao: "chuva fraca" },
   });

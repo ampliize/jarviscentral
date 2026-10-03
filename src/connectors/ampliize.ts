@@ -72,6 +72,24 @@ export function ampliizeConnector(api: ResourceApiOptions): Connector {
       }),
       tool("ampliize_comercial", "Funil comercial: leads por etapa e origem, follow-ups atrasados e fechamentos dos últimos 30 dias.", "pipeline"),
       tool("ampliize_erros", "Erros abertos no sistema (Monitor do CRM).", "errors"),
+      tool(
+        "ampliize_agenda",
+        "Agenda do CRM (a agenda da Ampliize): reuniões marcadas, prazos de tarefas, cobranças, contas a pagar e follow-ups de leads, dia a dia. Use para 'quais meus compromissos?', 'o que tenho hoje/amanhã/essa semana?', 'quando é a próxima reunião?'.",
+        "agenda",
+        { dias: nullableInt("Quantos dias a partir de hoje (1 a 31, padrão 7). Para 'hoje' use 1.") },
+      ),
+      tool(
+        "ampliize_financeiro_historico",
+        "Financeiro mês a mês por competência (faturado, recebido, custos, resultado) com a previsão dos próximos meses e a receita recorrente. Use para tendência, comparação entre meses e projeção de caixa.",
+        "finance_history",
+        { meses: nullableInt("Quantos meses para trás (3 a 24, padrão 12).") },
+      ),
+      tool(
+        "ampliize_comercial_historico",
+        "Comercial mês a mês: leads novos, reuniões, ganhos, perdidos, valor ganho e conversão.",
+        "sales_history",
+        { meses: nullableInt("Quantos meses para trás (3 a 24, padrão 6).") },
+      ),
     ],
   };
 }

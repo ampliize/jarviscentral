@@ -36,6 +36,7 @@ import { jobView, studioConnector } from "./studio/connector.js";
 import type { Runner } from "./studio/frames.js";
 import type { ImageFormat } from "./studio/images.js";
 import type { NetDeps } from "./studio/net.js";
+import { CrmPanels, PANEL_KINDS, PanelError, panelsConnector, type PanelKind } from "./skills/panels.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 120;
@@ -60,10 +61,12 @@ export interface AppDeps {
 
 /** Só links para destinos conhecidos viram botão no HUD (e "jarvis:estudio/<id>", que abre o andamento). */
 const LINK_HOSTS = ["lovable.dev", "github.com"];
+const PANEL_LINK_RE = new RegExp(`^jarvis:painel/(${PANEL_KINDS.join("|")})$`);
 export const safeLinks = (links: ToolLink[] = []) =>
   links
     .filter((l) => {
       if (/^jarvis:estudio\/[a-f0-9]{24}$/.test(l.url)) return true;
+      if (PANEL_LINK_RE.test(l.url)) return true;
       try {
         const u = new URL(l.url);
         return u.protocol === "https:" && LINK_HOSTS.includes(u.hostname);
@@ -136,6 +139,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     monitor: new SystemMonitor(brain.root, { fetchImpl, ...monitorOptions }),
     alerts: new AlertBook(brain.root),
     guard: new AgentGuard({ config, brainRoot: brain.root, dataDir: config.dataDir, fetchImpl, context: () => brain.context() }),
+    panels: new CrmPanels(config.ampliize ?? null, fetchImpl),
   };
   const audit = new AuditLog(config.dataDir);
   const engine = studioOptions && "creative" in studioOptions ? studioOptions.creative ?? null : studioEngine(config);
@@ -167,6 +171,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       studioConnector(studio, () => origin),
       ...(config.github ? [githubConnector(config.github, fetchImpl)] : []),
       auditConnector(audit),
+      panelsConnector(skills.panels!),
     ]),
     audit,
   );
@@ -256,6 +261,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     return crmPending;
   };
 
+  const lastState = (ok: boolean | null) => (ok === null ? "nao_testado" : ok ? "conectado" : "falha");
   app.get("/api/status", async (c) => {
     const [crm, brainReady, systems] = await Promise.all([
       checkCrm(),
@@ -276,6 +282,25 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
         github: !!config.github,
         sistemas_monitorados: systems.length,
       },
+      // Tela "Fontes de dados": de onde vem cada informação e como ligar o que falta.
+      fontes: [
+        { id: "crm", nome: "CRM da Ampliize", area: "Operação, agenda e finanças", estado: !config.ampliize ? "desligado" : crm?.ok ? "conectado" : "falha", como_ligar: "AMPLIIZE_API_URL e AMPLIIZE_API_KEY" },
+        { id: "cerebro", nome: "Cérebro (Obsidian)", area: "Memória", estado: !brain.git ? "desligado" : brainReady && brain.git.lastSync?.ok !== false ? "conectado" : "falha", como_ligar: "BRAIN_GIT_URL e BRAIN_GIT_TOKEN" },
+        // Chave da OpenAI presente (motor quando usa a OpenAI, voz sempre); não testa a conta.
+        { id: "openai", nome: "OpenAI", area: "Motor e voz", estado: (config.usesOpenAI && config.llmApiKey) || config.voice.apiKey ? "configurado" : "desligado", como_ligar: "OPENAI_API_KEY" },
+        // Serviços públicos: o estado é o da última consulta real.
+        { id: "clima", nome: "Clima (Open-Meteo)", area: "Sensores", estado: lastState(skills.weather.lastOk), como_ligar: null },
+        { id: "noticias", nome: "Notícias (Google Notícias)", area: "Radar", estado: lastState(skills.news.lastOk), como_ligar: null },
+        { id: "sistemas", nome: "Monitor de sistemas", area: "Sites e APIs dos clientes", estado: systems.length ? "conectado" : "desligado", como_ligar: "_jarvis/sistemas.md no cérebro" },
+        // Chaves sem teste de conta: "configurado" (não "conectado").
+        { id: "github", nome: "GitHub", area: "Código (leitura)", estado: config.github ? "configurado" : "desligado", como_ligar: "GITHUB_TOKEN" },
+        { id: "anthropic", nome: "Claude (Anthropic)", area: "Estúdio de sites", estado: config.anthropicApiKey ? "configurado" : "desligado", como_ligar: "ANTHROPIC_API_KEY" },
+        { id: "pexels", nome: "Pexels", area: "Referências do estúdio", estado: config.pexelsApiKey ? "configurado" : "desligado", como_ligar: "PEXELS_API_KEY" },
+        { id: "unsplash", nome: "Unsplash", area: "Referências do estúdio", estado: config.unsplashAccessKey ? "configurado" : "desligado", como_ligar: "UNSPLASH_ACCESS_KEY" },
+        ...config.projects.map((p) => ({ id: `projeto-${p.id}`, nome: p.name, area: "Projeto conectado", estado: "configurado", como_ligar: null })),
+        { id: "whatsapp", nome: "WhatsApp", area: "Comunicações", estado: "indisponivel", como_ligar: "ainda não integrado" },
+        { id: "email", nome: "E-mail", area: "Comunicações", estado: "indisponivel", como_ligar: "ainda não integrado" },
+      ],
       // Lista do que está pronto e do que falta, para a tela de configuração.
       configuracao: [
         {
@@ -389,6 +414,18 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
 
   // Lembretes: a HUD pergunta a cada 30 s quais venceram e avisa em voz.
   const reminderView = (r: { id: string; texto: string; quando: string; status: string }) => ({ id: r.id, texto: r.texto, quando: r.quando, status: r.status });
+  // Painéis do HUD: agenda, financeiro e comercial, direto do CRM.
+  app.get("/api/painel/:tipo", async (c) => {
+    const kind = c.req.param("tipo") as PanelKind;
+    if (!PANEL_KINDS.includes(kind)) return c.json({ error: "Painel desconhecido." }, 404);
+    try {
+      return c.json({ painel: kind, dados: await skills.panels!.panel(kind) });
+    } catch (err) {
+      if (err instanceof PanelError) return c.json({ error: err.message }, err.status as 501 | 502 | 503);
+      console.error("painel falhou:", err);
+      return c.json({ error: "Não consegui montar o painel." }, 500);
+    }
+  });
   // Painéis do HUD (sensores de clima e radar de notícias), com os mesmos serviços das habilidades.
   app.get("/api/clima", async (c) => {
     try {
