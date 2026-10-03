@@ -40,7 +40,7 @@ const WMO: Record<number, string> = {
 
 export interface Weather {
   cidade: string;
-  agora: { temperatura: number; sensacao: number | null; umidade: number | null; condicao: string };
+  agora: { temperatura: number; sensacao: number | null; umidade: number | null; vento: number | null; condicao: string };
   hoje: { minima: number | null; maxima: number | null; chance_de_chuva: number | null };
   amanha: { minima: number | null; maxima: number | null; chance_de_chuva: number | null; condicao: string } | null;
 }
@@ -80,7 +80,21 @@ export class WeatherService {
     return place;
   }
 
+  /** Última consulta de verdade: true = respondeu, false = falhou, null = ainda não consultou. */
+  lastOk: boolean | null = null;
+
   async get(city: string): Promise<Weather> {
+    try {
+      const data = await this.fetchWeather(city);
+      this.lastOk = true;
+      return data;
+    } catch (err) {
+      if (!(err instanceof WeatherError && /Informe a cidade|Não encontrei/.test(err.message))) this.lastOk = false;
+      throw err;
+    }
+  }
+
+  private async fetchWeather(city: string): Promise<Weather> {
     const key = city.trim().toLowerCase();
     if (!key) throw new WeatherError("Informe a cidade.");
     const hit = this.cache.get(key);
@@ -88,7 +102,7 @@ export class WeatherService {
     const p = await this.place(city);
     const url =
       `${FORECAST_URL}?latitude=${p.lat}&longitude=${p.lon}` +
-      "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code" +
+      "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code" +
       "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code" +
       // "auto": hoje/amanhã no fuso da cidade consultada (Lisboa, Aracaju...).
       "&timezone=auto&forecast_days=2";
@@ -109,6 +123,8 @@ export class WeatherService {
         temperatura,
         sensacao: num(cur.apparent_temperature),
         umidade: num(cur.relative_humidity_2m),
+        // km/h (unidade padrão do Open-Meteo).
+        vento: num(cur.wind_speed_10m),
         condicao: WMO[Number(cur.weather_code)] ?? "tempo indefinido",
       },
       hoje: day(0),

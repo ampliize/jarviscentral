@@ -6,6 +6,8 @@ import type { AgentGuard } from "./guard.js";
 import type { SystemMonitor } from "./monitor.js";
 import { WeatherError, type WeatherService } from "./weather.js";
 
+import type { CrmPanels } from "./panels.js";
+
 export interface Skills {
   reminders: ReminderStore;
   weather: WeatherService;
@@ -19,6 +21,8 @@ export interface Skills {
   alerts?: AlertBook;
   /** Guardião dos agentes de IA do CRM. */
   guard?: AgentGuard;
+  /** Painéis do HUD (agenda, financeiro, comercial), lidos do CRM. */
+  panels?: CrmPanels;
 }
 
 const obj = (properties: Record<string, unknown>) => ({

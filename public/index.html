@@ -208,6 +208,51 @@
   .passos li i { width:26px; height:26px; border-radius:6px; border:1px solid var(--line); display:grid; place-items:center; font-style:normal; color:var(--muted); }
   .passos li.on { opacity:1; } .passos li.on i { border-color:var(--cyan); color:var(--cyan); box-shadow:0 0 10px rgba(63,214,255,.4); }
   .itens .abrir { margin-left:auto; flex:none; }
+  /* ---------- painéis (agenda, financeiro, comercial): dados do CRM ---------- */
+  .viz { --s1:#3987e5; --s2:#d95926; --grid:rgba(143,180,204,.16); --ink2:#8fb4cc; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:8px; margin-top:14px; }
+  .kpi { border:1px solid rgba(90,200,255,.2); border-radius:8px; padding:9px 11px; background:rgba(3,16,40,.55); min-width:0; }
+  .kpi span { display:block; font:600 9px var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+  .kpi b { display:block; margin-top:4px; font-size:18px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kpi small { display:block; font-size:11px; color:var(--muted); margin-top:2px; }
+  .kpi.alerta { border-color:rgba(255,180,84,.55); } .kpi.alerta b::before { content:"⚠ "; color:var(--warn); font-size:14px; }
+  .chart { position:relative; margin-top:16px; }
+  .chart h3 { margin:0 0 6px; font:600 10px var(--mono); letter-spacing:.16em; text-transform:uppercase; color:rgba(232,246,255,.85); }
+  .chart svg { display:block; width:100%; height:auto; overflow:visible; }
+  .chart svg text { font:10px var(--sans); fill:var(--ink2); }
+  .chart svg .lbl { fill:#e8f6ff; font-weight:600; }
+  .chart .hit { fill:transparent; cursor:default; outline:none; }
+  .chart .hit:focus-visible { stroke:var(--cyan); stroke-width:1; }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:6px; font-size:11px; color:rgba(232,246,255,.8); }
+  .legend i { display:inline-block; width:14px; height:3px; border-radius:2px; vertical-align:middle; margin-right:6px; }
+  .legend i.hatch { height:8px; background:repeating-linear-gradient(45deg, var(--ink2) 0 2px, transparent 2px 5px); border:1px solid var(--ink2); }
+  .tip { position:absolute; z-index:3; pointer-events:none; min-width:150px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);
+    background:rgba(2,10,28,.95); font-size:12px; line-height:1.5; color:#dcefff; box-shadow:0 6px 20px rgba(0,0,0,.4); }
+  .tip b { color:#fff; } .tip .k { display:inline-block; width:12px; height:2px; vertical-align:middle; margin-right:6px; border-radius:1px; }
+  .tip .t { font:600 9px var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:2px; }
+  details.tabela { margin-top:8px; font-size:12px; }
+  details.tabela summary { cursor:pointer; font:600 9px var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--cyan-2); }
+  details.tabela table { width:100%; border-collapse:collapse; margin-top:6px; }
+  details.tabela th, details.tabela td { padding:4px 6px; border-bottom:1px solid rgba(90,200,255,.12); text-align:right; white-space:nowrap; }
+  details.tabela th:first-child, details.tabela td:first-child { text-align:left; }
+  details.tabela .scroll { overflow-x:auto; }
+  .agenda { list-style:none; margin:12px 0 0; padding:0; display:grid; gap:4px; }
+  .agenda .dia { margin-top:10px; font:600 10px var(--mono); letter-spacing:.16em; text-transform:uppercase; color:var(--cyan); }
+  .agenda .ev { display:grid; grid-template-columns:48px 1fr auto; gap:10px; align-items:start; padding:8px 10px; border:1px solid rgba(90,200,255,.16); border-radius:8px; background:rgba(3,16,40,.5); }
+  .agenda .ev time { font:600 12px var(--mono); color:#fff; padding-top:1px; }
+  .agenda .ev b { display:block; font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+  .agenda .ev small { display:block; font-size:11px; color:var(--muted); margin-top:2px; overflow-wrap:anywhere; }
+  .agenda .ev .tipo { font:600 8px var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--cyan-2); border:1px solid var(--line); border-radius:999px; padding:2px 6px; margin-right:6px; }
+  .agenda .ev .v { font-size:12px; font-weight:600; color:#fff; white-space:nowrap; }
+  .agenda .ev.reuniao { border-color:rgba(63,214,255,.45); box-shadow:inset 3px 0 0 var(--cyan); }
+  .prox { margin-top:12px; padding:10px 12px; border:1px solid rgba(63,214,255,.45); border-radius:10px; background:rgba(63,214,255,.07); }
+  .prox span { font:600 9px var(--mono); letter-spacing:.16em; text-transform:uppercase; color:var(--cyan); }
+  .prox b { display:block; margin-top:3px; font-size:15px; }
+  .prox small { color:var(--muted); font-size:12px; }
+  .destaque-n { padding:14px; border:1px solid rgba(63,214,255,.4); border-radius:12px; background:linear-gradient(135deg, rgba(57,135,229,.22), rgba(3,16,40,.6)); }
+  .destaque-n span { font:600 9px var(--mono); letter-spacing:.16em; text-transform:uppercase; color:var(--cyan); }
+  .destaque-n b { display:block; margin-top:8px; font-size:17px; line-height:1.3; }
+  .destaque-n small { display:block; margin-top:6px; color:var(--muted); font-size:12px; }
   @media (min-width:1100px) {
     #dock { display:none; }
     #focus { width:min(680px, calc(100vw - 560px)); }
@@ -327,6 +372,8 @@
     <div class="tela-top"><b>JARVIS</b><span id="telaNome">Centro de comando</span><time id="telaClock">--:--:--</time></div>
     <nav class="tela-tabs" role="tablist" aria-label="Telas">
       <button type="button" role="tab" data-tab="comando" aria-selected="true">Centro de comando</button>
+      <button type="button" role="tab" data-tab="agenda" aria-selected="false">Agenda tática</button>
+      <button type="button" role="tab" data-tab="financeiro" aria-selected="false">Financeiro</button>
       <button type="button" role="tab" data-tab="noticias" aria-selected="false">Radar de notícias</button>
       <button type="button" role="tab" data-tab="nucleo" aria-selected="false">Núcleo do sistema</button>
       <button type="button" role="tab" data-tab="espelho" aria-selected="false">Espelho</button>
@@ -377,6 +424,7 @@
       <button class="btn" type="button" id="cfg">Configuração</button>
       <button class="btn" type="button" id="nova">Nova conversa</button>
       <button class="btn" type="button" id="skillsBtn">Habilidades</button>
+      <button class="btn" type="button" id="fontesBtn">Fontes de dados</button>
       <button class="btn" type="button" id="studioBtn">Sites (estúdio)</button>
       <input type="file" id="studioVideo" accept="video/mp4,video/webm,video/quicktime" hidden>
       <button class="btn" type="button" id="sair">Sair</button>
@@ -489,7 +537,7 @@
     if (TELA || !hudChannel || c.tipo === 'loading') return;
     try {
       hudChannel.postMessage({ tipo: 'card', card: {
-        rotulo: c.rotulo || '', titulo: c.titulo || '', texto: c.texto || '', rodape: c.rodape || '',
+        rotulo: c.rotulo || '', titulo: c.titulo || '', texto: (c.tipo === 'painel' ? c.fala : c.texto) || '', rodape: c.rodape || '',
         destaque: c.destaque ? { valor: String(c.destaque.valor), legenda: String(c.destaque.legenda || '') } : null,
         itens: Array.isArray(c.itens) ? c.itens.map((i) => ({ titulo: String(i.titulo || ''), detalhe: i.detalhe ? String(i.detalhe) : '', alerta: !!i.alerta })) : null,
         em: new Date().toISOString(),
@@ -568,6 +616,8 @@
       }, 45);
     }
     if (c.texto) card.append(el('div', 'texto', clean(c.texto)));
+    // Painéis montam o próprio conteúdo (gráficos, agenda) a cada exibição.
+    if (typeof c.corpo === 'function') { try { card.append(c.corpo()); } catch (err) { card.append(el('p', 'vazio', 'Não consegui desenhar este painel.')); } }
     if (Array.isArray(c.itens)) {
       if (!c.itens.length && c.vazio) card.append(el('p', 'vazio', c.vazio));
       if (c.itens.length) {
@@ -1250,9 +1300,260 @@
     $('side').hidden = false;
   }
 
+  // ================= painéis: agenda, financeiro e comercial (dados do CRM) =================
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag, attrs = {}) => { const e = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); return e; };
+  const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  const monthLabel = (ym, long) => { const [y, m] = ym.split('-').map(Number); return long ? MONTHS_LONG[m - 1] + ' de ' + y : MONTHS[m - 1] + '/' + String(y).slice(2); };
+  const kpi = (label, valor, nota, alerta) => { const d = el('div', 'kpi' + (alerta ? ' alerta' : '')); d.append(el('span', null, label), el('b', null, valor)); if (nota) d.append(el('small', null, nota)); d.title = label + ': ' + valor; return d; };
+  const kpiRow = (items) => { const g = el('div', 'kpis'); g.append(...items); return g; };
+  let chartSeq = 0;
+  /** Passo "redondo" do eixo (1, 2, 2,5, 5 × 10^n); contagens só com passos inteiros. */
+  const niceStep = (raw, integer) => {
+    if (!(raw > 0)) return integer ? 1 : 1000;
+    const p = Math.pow(10, Math.floor(Math.log10(raw)));
+    for (const m of integer ? [1, 2, 5, 10] : [1, 2, 2.5, 5, 10]) if (raw <= m * p && (!integer || m * p >= 1)) return m * p;
+    return 10 * p;
+  };
+  /**
+   * Colunas agrupadas por mês (uma escala só). `previsto(row)` marca os meses
+   * futuros: mesma cor, com hachura. Tooltip por mês (mouse e teclado) e
+   * tabela com todos os números.
+   */
+  function columnChart({ titulo, rows, series, fmt, previsto, label, integer }) {
+    const id = 'c' + (++chartSeq);
+    const wrap = el('div', 'chart viz');
+    wrap.append(el('h3', null, titulo));
+    const W = 640, H = 190, padL = 46, padR = 6, padT = 14, padB = 22;
+    const step = niceStep(Math.max(0, ...rows.flatMap((r) => series.map((s) => Number(r[s.key]) || 0))) / 3, integer);
+    const max = step * 3;
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': titulo + ' (detalhes na tabela abaixo)' });
+    const defs = svgEl('defs');
+    series.forEach((s, i) => {
+      const pat = svgEl('pattern', { id: `${id}h${i}`, width: 5, height: 5, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
+      pat.append(svgEl('rect', { width: 5, height: 5, fill: s.color, 'fill-opacity': 0.18 }), svgEl('line', { x1: 0, y1: 0, x2: 0, y2: 5, stroke: s.color, 'stroke-width': 2 }));
+      defs.append(pat);
+    });
+    svg.append(defs);
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const y = (v) => padT + plotH - (v / max) * plotH;
+    for (let k = 0; k <= 3; k++) {
+      const v = step * k, yy = y(v);
+      svg.append(svgEl('line', { x1: padL, x2: W - padR, y1: yy, y2: yy, stroke: 'var(--grid)', 'stroke-width': 1 }));
+      const t = svgEl('text', { x: padL - 6, y: yy + 3, 'text-anchor': 'end' }); t.textContent = fmt(v, true); svg.append(t);
+    }
+    const band = plotW / rows.length;
+    const barW = Math.min(24, (band - 8 - 2 * (series.length - 1)) / series.length);
+    const tip = el('div', 'tip'); tip.hidden = true;
+    const showTip = (r, cx) => {
+      tip.replaceChildren(el('div', 't', monthLabel(r.mes, true) + (previsto?.(r) ? ' · previsto' : '')));
+      for (const s of series) {
+        const line = el('div'); const k = el('span', 'k'); k.style.background = s.color;
+        line.append(k, el('b', null, fmt(Number(r[s.key]) || 0)), document.createTextNode(' ' + ((previsto?.(r) && s.labelPrevisto) || s.label).toLowerCase()));
+        tip.append(line);
+      }
+      for (const extra of (label?.(r) || [])) tip.append(el('div', null, extra));
+      tip.hidden = false;
+      const box = wrap.getBoundingClientRect(), sv = svg.getBoundingClientRect();
+      const px = (cx / W) * sv.width + (sv.left - box.left);
+      tip.style.left = Math.max(0, Math.min(px - 80, box.width - 170)) + 'px';
+      tip.style.top = (sv.top - box.top) + 'px';
+    };
+    rows.forEach((r, i) => {
+      const x0 = padL + i * band, groupW = series.length * barW + (series.length - 1) * 2, gx = x0 + (band - groupW) / 2;
+      const fut = !!previsto?.(r);
+      series.forEach((s, j) => {
+        const v = Math.max(0, Number(r[s.key]) || 0), yy = y(v), h = padT + plotH - yy, bx = gx + j * (barW + 2);
+        if (h <= 0.5) return;
+        const rad = Math.min(4, h, barW / 2);
+        const d = `M${bx},${padT + plotH} V${yy + rad} Q${bx},${yy} ${bx + rad},${yy} H${bx + barW - rad} Q${bx + barW},${yy} ${bx + barW},${yy + rad} V${padT + plotH} Z`;
+        svg.append(svgEl('path', { d, fill: fut ? `url(#${id}h${j})` : s.color, stroke: fut ? s.color : 'none', 'stroke-width': fut ? 1 : 0 }));
+      });
+      const t = svgEl('text', { x: x0 + band / 2, y: H - 6, 'text-anchor': 'middle' }); t.textContent = monthLabel(r.mes); svg.append(t);
+      const hit = svgEl('rect', { class: 'hit', x: x0, y: padT, width: band, height: plotH + padB, tabindex: 0, role: 'button', 'aria-label': monthLabel(r.mes, true) });
+      const on = () => showTip(r, x0 + band / 2);
+      hit.addEventListener('pointerenter', on); hit.addEventListener('focus', on);
+      hit.addEventListener('pointerleave', () => { tip.hidden = true; }); hit.addEventListener('blur', () => { tip.hidden = true; });
+      svg.append(hit);
+    });
+    svg.append(svgEl('line', { x1: padL, x2: W - padR, y1: padT + plotH, y2: padT + plotH, stroke: 'rgba(143,180,204,.4)', 'stroke-width': 1 }));
+    wrap.append(svg, tip);
+    // Legenda: com 2+ séries sempre; a hachura explica os meses previstos.
+    const leg = el('div', 'legend');
+    if (series.length > 1) for (const s of series) { const it = el('span'); const k = el('i'); k.style.background = s.color; it.append(k, document.createTextNode(s.label)); leg.append(it); }
+    if (rows.some((r) => previsto?.(r))) { const it = el('span'); it.append(el('i', 'hatch'), document.createTextNode('previsto (já lançado no CRM)')); leg.append(it); }
+    if (leg.children.length) wrap.append(leg);
+    // Tabela: todos os números, sem depender do gráfico.
+    const det = el('details', 'tabela'); det.append(el('summary', null, 'Ver tabela'));
+    const sc = el('div', 'scroll'); const tb = el('table'); const hr = el('tr');
+    hr.append(el('th', null, 'Mês'), ...series.map((s) => el('th', null, s.label)));
+    const thead = el('thead'); thead.append(hr); const tbody = el('tbody');
+    for (const r of rows) { const tr = el('tr'); tr.append(el('td', null, monthLabel(r.mes) + (previsto?.(r) ? ' (prev.)' : '')), ...series.map((s) => el('td', null, fmt(Number(r[s.key]) || 0)))); tbody.append(tr); }
+    tb.append(thead, tbody); sc.append(tb); det.append(sc); wrap.append(det);
+    return wrap;
+  }
+  const brlShort = (v, axis) => {
+    if (!axis) return brl(v);
+    if (v >= 1000) return 'R$' + (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + 'k';
+    return 'R$' + Math.round(v);
+  };
+  const intFmt = (v) => String(Math.round(v));
+
+  function financePanel(d) {
+    const serie = d.serie || [];
+    const atual = serie.find((m) => m.mes === d.mes_atual) || {};
+    const prox = serie.find((m) => m.previsto);
+    const passados = serie.filter((m) => !m.previsto);
+    const cat = Object.entries(d.custos_por_categoria_mes_atual || {}).sort((a, b) => b[1] - a[1]);
+    const fala = 'Painel financeiro. Em ' + monthLabel(d.mes_atual, true).replace(/ de \d+$/, '') + ', recebido ' + brl(atual.recebido || 0) + ' de ' + brl(atual.faturado || 0) + ' faturados, e ' + brl(atual.custos_pagos || 0) + ' de custos pagos.' +
+      ' Receita recorrente de ' + brl(d.receita_recorrente_mensal || 0) + ' por mês.' +
+      (atual.vencido ? ' Atenção: ' + brl(atual.vencido) + ' vencido.' : '') +
+      (prox ? ' Para ' + monthLabel(prox.mes, true).replace(/ de \d+$/, '') + ', o resultado previsto é ' + brl(prox.resultado_previsto) + '.' : '');
+    return {
+      id: 'painel-financeiro', tipo: 'painel', rotulo: 'PAINEL · FINANCEIRO', titulo: 'Financeiro mês a mês',
+      destaque: { valor: brl(d.receita_recorrente_mensal || 0), legenda: 'recorrente/mês' },
+      texto: 'Competência, como na aba Financeiro do CRM.',
+      rodape: 'fonte: CRM da Ampliize · ' + (d.contratos_recorrentes || 0) + ' contratos recorrentes',
+      fala,
+      corpo: () => {
+        const box = el('div');
+        box.append(kpiRow([
+          kpi('Recebido no mês', brl(atual.recebido || 0), 'de ' + brl(atual.faturado || 0) + ' faturado'),
+          kpi('A receber', brl(atual.a_receber || 0), 'no mês'),
+          kpi('Vencido', brl(atual.vencido || 0), atual.vencido ? 'cobrar' : 'nada vencido', (atual.vencido || 0) > 0),
+          kpi('Resultado do mês', brl(atual.resultado || 0), 'recebido − custos pagos'),
+        ]));
+        box.append(columnChart({
+          titulo: 'Recebido × custos pagos (meses futuros: faturado × custos lançados)',
+          rows: serie.map((m) => ({ ...m, entrada: m.previsto ? m.faturado : m.recebido, saida: m.previsto ? m.custos : m.custos_pagos })),
+          series: [{ key: 'entrada', label: 'Recebido', labelPrevisto: 'faturado', color: '#3987e5' }, { key: 'saida', label: 'Custos', labelPrevisto: 'custos lançados', color: '#d95926' }],
+          fmt: brlShort,
+          previsto: (r) => r.previsto,
+          label: (r) => [(r.previsto ? 'Resultado previsto: ' + brl(r.resultado_previsto) : 'Resultado: ' + brl(r.resultado)) + (r.vencido ? ' · vencido ' + brl(r.vencido) : '')],
+        }));
+        if (cat.length) box.append(kpiRow(cat.slice(0, 4).map(([k, v]) => kpi('Custos · ' + k, brl(v), monthLabel(d.mes_atual)))));
+        if (!passados.some((m) => m.faturado || m.custos)) box.append(el('p', 'vazio', 'Ainda há poucos meses lançados no CRM; o gráfico cresce conforme as faturas e contas entram.'));
+        return box;
+      },
+    };
+  }
+
+  function salesPanel(d) {
+    const serie = d.serie || [];
+    const atual = serie.find((m) => m.mes === d.mes_atual) || {};
+    const ganhos = serie.reduce((a, m) => a + m.ganhos, 0), perdidos = serie.reduce((a, m) => a + m.perdidos, 0);
+    const conv = ganhos + perdidos ? Math.round((ganhos / (ganhos + perdidos)) * 100) : null;
+    const f = d.funil_aberto || { quantidade: 0, valor_estimado: 0 };
+    const fala = 'Painel comercial. Em ' + monthLabel(d.mes_atual, true).replace(/ de \d+$/, '') + ': ' + (atual.leads_novos || 0) + ' leads novos, ' + (atual.reunioes || 0) + ' reuniões, ' + (atual.ganhos || 0) + ' ganhos e ' + (atual.perdidos || 0) + ' perdidos.' +
+      ' Funil aberto com ' + f.quantidade + ' leads' + (f.valor_estimado ? ', ' + brl(f.valor_estimado) + ' estimados' : '') + '.';
+    return {
+      id: 'painel-comercial', tipo: 'painel', rotulo: 'PAINEL · COMERCIAL', titulo: 'Comercial mês a mês',
+      destaque: { valor: String(f.quantidade), legenda: 'leads no funil' },
+      rodape: 'fonte: CRM da Ampliize · últimos ' + serie.length + ' meses',
+      fala,
+      corpo: () => {
+        const box = el('div');
+        box.append(kpiRow([
+          kpi('Leads novos', String(atual.leads_novos || 0), monthLabel(d.mes_atual)),
+          kpi('Reuniões', String(atual.reunioes || 0), monthLabel(d.mes_atual)),
+          kpi('Funil aberto', brl(f.valor_estimado || 0), f.quantidade + ' leads'),
+          kpi('Conversão', conv == null ? '—' : conv + '%', ganhos + ' ganhos · ' + perdidos + ' perdidos no período'),
+        ]));
+        box.append(columnChart({ titulo: 'Leads novos por mês', rows: serie, series: [{ key: 'leads_novos', label: 'Leads novos', color: '#3987e5' }], fmt: intFmt, integer: true,
+          label: (r) => [r.reunioes + ' reuniões'] }));
+        box.append(columnChart({ titulo: 'Ganhos × perdidos', rows: serie, series: [{ key: 'ganhos', label: 'Ganhos', color: '#3987e5' }, { key: 'perdidos', label: 'Perdidos', color: '#d95926' }], fmt: intFmt, integer: true,
+          label: (r) => [r.conversao == null ? 'sem fechamentos' : 'conversão ' + r.conversao + '%', r.valor_ganho_estimado ? 'valor ganho estimado ' + brl(r.valor_ganho_estimado) : ''].filter(Boolean) }));
+        return box;
+      },
+    };
+  }
+
+  const TIPO_LABEL = { reuniao: 'Reunião', prazo: 'Prazo', cobranca: 'Cobrança', pagamento: 'Pagar', follow_up: 'Follow-up' };
+  const dayTitle = (iso, de) => {
+    if (iso === de) return 'Hoje';
+    const t = new Date(Date.parse(de + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);
+    if (iso === t) return 'Amanhã';
+    return new Date(iso + 'T12:00:00Z').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+  };
+  const spokenHour = (h) => {
+    const m = /^(\d{1,2}):(\d{2})/.exec(h || '');
+    return m ? 'às ' + Number(m[1]) + 'h' + (m[2] === '00' ? '' : m[2]) : 'sem hora marcada';
+  };
+  function agendaPanel(d) {
+    const ev = d.eventos || [];
+    const c = d.contagem || {};
+    const p = d.proxima_reuniao;
+    const fala = 'Agenda dos próximos ' + d.dias + ' dias: ' +
+      [c.reunioes ? c.reunioes + (c.reunioes === 1 ? ' reunião' : ' reuniões') : 'nenhuma reunião', c.prazos ? c.prazos + (c.prazos === 1 ? ' prazo' : ' prazos') : '', c.follow_ups ? c.follow_ups + (c.follow_ups === 1 ? ' follow-up' : ' follow-ups') : '', c.cobrancas ? c.cobrancas + (c.cobrancas === 1 ? ' cobrança' : ' cobranças') : '', c.pagamentos ? c.pagamentos + (c.pagamentos === 1 ? ' conta a pagar' : ' contas a pagar') : ''].filter(Boolean).join(', ') + '.' +
+      (p ? ' Próxima reunião: ' + p.titulo.replace(/^Reunião · /, '') + ', ' + dayTitle(p.data, d.de).toLowerCase() + ' ' + spokenHour(p.hora) + '.' : '');
+    return {
+      id: 'painel-agenda', tipo: 'painel', rotulo: 'AGENDA · CRM', titulo: 'Próximos ' + d.dias + ' dias',
+      destaque: { valor: String(ev.length), legenda: ev.length === 1 ? 'compromisso' : 'compromissos' },
+      rodape: 'fonte: agenda do CRM da Ampliize',
+      fala,
+      corpo: () => {
+        const box = el('div');
+        if (p) {
+          const pr = el('div', 'prox');
+          pr.append(el('span', null, 'Próxima reunião'), el('b', null, p.titulo), el('small', null, dayTitle(p.data, d.de) + (p.hora ? ' · ' + p.hora : '') + (p.detalhe ? ' · ' + p.detalhe : '')));
+          if (p.link) { const b = el('button', 'btn', 'Entrar'); b.type = 'button'; b.style.marginTop = '8px'; b.onclick = () => openSafe(p.link); pr.append(el('br'), b); }
+          box.append(pr);
+        }
+        if (!ev.length) { box.append(el('p', 'vazio', 'Nada marcado no CRM para os próximos ' + d.dias + ' dias.')); return box; }
+        const ul = el('ul', 'agenda');
+        let last = '';
+        for (const e of ev) {
+          if (e.data !== last) { last = e.data; ul.append(el('li', 'dia', dayTitle(e.data, d.de))); }
+          const li = el('li', 'ev ' + e.tipo);
+          const body = el('div');
+          const head = el('b'); head.append(el('span', 'tipo', TIPO_LABEL[e.tipo] || e.tipo), document.createTextNode(e.titulo.replace(/^(Reunião|Cobrança|Pagar|Follow-up) · /, '')));
+          body.append(head);
+          if (e.detalhe) body.append(el('small', null, e.detalhe));
+          li.append(el('time', null, e.hora || '—'), body, el('span', 'v', e.valor ? brl(e.valor) : ''));
+          ul.append(li);
+        }
+        box.append(ul);
+        return box;
+      },
+    };
+  }
+  const PANEL_BUILD = { agenda: agendaPanel, financeiro: financePanel, comercial: salesPanel };
+  const PANEL_LINK = new RegExp('^jarvis:painel/(' + Object.keys(PANEL_BUILD).join('|') + ')$');
+  const PANEL_TITLE = { agenda: 'agenda', financeiro: 'painel financeiro', comercial: 'painel comercial' };
+  async function loadPanel(kind) {
+    const r = await api('/api/painel/' + kind);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Não consegui abrir o ' + PANEL_TITLE[kind] + '.');
+    return PANEL_BUILD[kind](d.dados || {});
+  }
+  /** Abre um painel no foco; speak = fala o resumo (comando direto, sem passar pela IA). */
+  async function openPanel(kind, { speak = true, force } = {}) {
+    if (!PANEL_BUILD[kind]) return;
+    let card;
+    try { card = await loadPanel(kind); } catch (err) { showError(err.message); return false; }
+    showCard(card);
+    if (speak && (await say(card.fala, { force }))) subtitle('');
+    return true;
+  }
+  window.__jarvis = { ...(window.__jarvis || {}), openPanel };
+
   // ================= perguntar =================
   // Só a saudação (ou o pedido de briefing) sozinha; "bom dia, quanto recebemos?" vai para o chat.
   const BRIEF_RE = /^(bom dia|boa tarde|boa noite|briefing|resumo do dia|me (da|passa) o (briefing|resumo))( jarvis)?$/;
+  /** Pedido curto e direto de um painel (o resto vai para a IA, que também sabe abrir painéis). */
+  const panelIntent = (plain) => {
+    if (plain.length > 70) return null;
+    const verb = '(abr[ae]|abrir|mostr[ae]|mostrar|ver|exib[ae]|exibir|me mostra|quero ver|cade)';
+    if (new RegExp('^(jarvis )?' + verb + '( o| a| meu| minha| os| as)* (painel|dashboard|grafico|graficos)( do| da| de)? (financeiro|financas|financa|faturamento|caixa)$').test(plain) ||
+        /^(jarvis )?(painel|dashboard) (financeiro|de financas|do financeiro)$/.test(plain) || /^(jarvis )?(abr[ae]|mostr[ae]) (o |meu )?financeiro$/.test(plain)) return 'financeiro';
+    if (new RegExp('^(jarvis )?' + verb + '( o| a| meu| minha)* (painel|dashboard|grafico|graficos)( do| da| de)? (comercial|vendas|funil)$').test(plain) ||
+        /^(jarvis )?(painel|dashboard) (comercial|de vendas|do comercial)$/.test(plain)) return 'comercial';
+    // Só o pedido da agenda em si; perguntas como "o que tenho amanhã?" vão para a IA (que vê o CRM e os lembretes).
+    if (/^(jarvis )?((abr[ae]|abrir|mostr[ae]|mostrar|ver|exib[ae]) (a |minha )?agenda( da semana)?|minha agenda( da semana)?|agenda( da semana)?)$/.test(plain)) return 'agenda';
+    return null;
+  };
+  window.__jarvis = { ...(window.__jarvis || {}), panelIntent: (t) => panelIntent(t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()) };
   async function askJarvis(message, { spoken } = {}) {
     if (busy) return;
     stopSpeaking();
@@ -1270,6 +1571,24 @@
     }
     musicSkipOnce = cmd === 'once';
     if (BRIEF_RE.test(plain)) return runBriefing({ force: spoken });
+    // "abre meu painel financeiro", "minha agenda": abre direto, sem gastar a IA.
+    const kind = panelIntent(plain);
+    if (kind) {
+      setBusy(true);
+      setMode('thinking');
+      try {
+        let card;
+        try { card = await loadPanel(kind); } catch (err) { showError(err.message); return; }
+        showCard(card);
+        setBusy(false);
+        if (await say(card.fala, { force: spoken })) subtitle('');
+      } finally {
+        musicSkipOnce = false;
+        setBusy(false);
+        if (mode !== 'error' && mode !== 'listening' && mode !== 'transcribing') restMode();
+      }
+      return;
+    }
     setBusy(true);
     setMode('thinking');
     // Falou com o Jarvis: a trilha entra enquanto ele pensa e fica por baixo da resposta.
@@ -1283,7 +1602,8 @@
       sessionStorage.setItem('jarvis_conversation', conversationId);
       const tools = (data.tools || []).map((t) => t.name.replace(/^ampliize_|^memoria_/, '') + (t.ok ? '' : ' (falhou)'));
       // Links das ferramentas (ex.: "Criar no Lovable") viram botões; só destinos conhecidos.
-      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)) || /^jarvis:estudio\/[a-f0-9]{24}$/.test(String(l.url)));
+      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)) || /^jarvis:estudio\/[a-f0-9]{24}$/.test(String(l.url)) || PANEL_LINK.test(String(l.url)));
+      const panelLink = links.map((l) => PANEL_LINK.exec(l.url)).find(Boolean);
       // Produção de site começou: acompanha em segundo plano.
       for (const l of links) { const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url); if (m) watchStudio(m[1]); }
       showCard({
@@ -1293,10 +1613,15 @@
         rodape: tools.length ? 'consultou: ' + tools.join(', ') : '',
         botoes: links.map((l) => ({
           texto: l.rotulo,
-          fn: () => { const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url); if (m) showStudio(m[1]); else window.open(l.url, '_blank', 'noopener,noreferrer'); },
+          fn: () => {
+            const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url), pm = PANEL_LINK.exec(l.url);
+            if (m) showStudio(m[1]); else if (pm) openPanel(pm[1], { speak: false }); else window.open(l.url, '_blank', 'noopener,noreferrer');
+          },
         })),
       });
       setBusy(false); // resposta chegou: já dá para interromper a fala com o mic
+      // A IA pediu um painel: abre junto (a resposta fica no canal e na doca).
+      if (panelLink) openPanel(panelLink[1], { speak: false });
       if (await say(data.answer, { force: spoken })) subtitle('');
     } catch (err) {
       showError(err.message || 'Sem conexão com o servidor.');
@@ -1391,6 +1716,33 @@
     $('svcChip').textContent = warn ? 'Atenção' : 'Operacional';
     $('nuvem').textContent = 'Nuvem · ' + (sv.motor ? st.modelo : 'sem chave');
   }
+  // Fontes de dados: de onde vem cada informação, o que está ligado e como ligar o resto.
+  const FONTE_ICON = { conectado: '🟢', configurado: '🔵', nao_testado: '◌', falha: '🟡', desligado: '⚪', indisponivel: '⚪' };
+  const FONTE_TXT = { conectado: 'respondendo', configurado: 'chave configurada', nao_testado: 'ainda não consultado', falha: 'com falha', desligado: 'desligado', indisponivel: 'ainda não integrado' };
+  const fontesCard = (st) => {
+    const list = st.fontes || [];
+    const on = list.filter((f) => f.estado === 'conectado' || f.estado === 'configurado' || f.estado === 'nao_testado').length;
+    return {
+      id: 'fontes', rotulo: 'JARVIS · FONTES DE DADOS', titulo: on + ' de ' + list.length + ' fontes ligadas',
+      destaque: { valor: on + '/' + list.length, legenda: 'conectadas' },
+      itens: list.map((f) => ({
+        titulo: (FONTE_ICON[f.estado] || '⚪') + ' ' + f.nome + ' · ' + (FONTE_TXT[f.estado] || f.estado),
+        detalhe: f.area + ((f.estado === 'desligado' || f.estado === 'falha') && f.como_ligar ? ' · como ligar: ' + f.como_ligar : ''),
+        alerta: f.estado === 'falha',
+      })),
+      rodape: 'chaves vão só no Environment do Easypanel, nunca no chat',
+    };
+  };
+  $('fontesBtn').onclick = async () => {
+    toggleHud(false);
+    try {
+      const r = await api('/api/status');
+      if (!r.ok) throw new Error('Não consegui ler as fontes.');
+      const st = await r.json();
+      renderServices(st);
+      showCard(fontesCard(st));
+    } catch (err) { showError(err.message); }
+  };
   async function refreshStatus() {
     try {
       const r = await api('/api/status');
@@ -1431,7 +1783,7 @@
       box.append(svg, info);
       const x = el('div', 'clima-x');
       const cell = (k, v) => { const d = el('div', null, k); d.append(el('b', null, v)); return d; };
-      x.append(cell('Mín', fmtT(c.hoje?.minima)), cell('Máx', fmtT(c.hoje?.maxima)), cell('Chuva', c.hoje?.chance_de_chuva == null ? '—' : c.hoje.chance_de_chuva + '%'));
+      x.append(cell('Mín', fmtT(c.hoje?.minima)), cell('Máx', fmtT(c.hoje?.maxima)), cell('Chuva', c.hoje?.chance_de_chuva == null ? '—' : c.hoje.chance_de_chuva + '%'), cell('Vento', c.agora.vento == null ? '—' : c.agora.vento + ' km/h'));
       $('climaBody').replaceChildren(box, x);
       $('climaPanel').hidden = false;
     } catch {}
@@ -1709,6 +2061,8 @@
     ['CRM da Ampliize', 'clientes, financeiro, projetos, funil, erros e melhorias'],
     ['Lembretes', '“me lembra de cobrar a Ruddar amanhã às 9h” · “quais meus lembretes?”'],
     ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
+    ['Agenda do CRM', '“minha agenda” · “quais meus compromissos?” · “quando é minha próxima reunião?” (reuniões, prazos, cobranças, contas e follow-ups)'],
+    ['Painéis', '“abre meu painel financeiro” · “mostra o painel comercial” (gráficos mês a mês, direto do CRM)'],
     ['Notícias', '“notícias de marketing digital” · “o que saiu sobre Aracaju?”'],
     ['Guardião dos agentes', '“revise os rascunhos dos agentes” · “o SDR saiu da linha?” · regras em _jarvis/regras-dos-agentes.md'],
     ['Estúdio de sites', '“cria uma landing page com scroll animation para a clínica X” · o Jarvis pesquisa as referências e produz tudo (conceito, imagens, frames, HTML); entrega prévia + prompt do Lovable'],
@@ -2204,7 +2558,7 @@
   }
 
   // ================= segunda tela: abas =================
-  const TELA_TABS = { comando: 'Centro de comando', noticias: 'Radar de notícias', nucleo: 'Núcleo do sistema', espelho: 'Espelho da tela principal' };
+  const TELA_TABS = { comando: 'Centro de comando', agenda: 'Agenda tática', financeiro: 'Financeiro', noticias: 'Radar de notícias', nucleo: 'Núcleo do sistema', espelho: 'Espelho da tela principal' };
   const NEWS_TOPICS = ['Marketing digital', 'Inteligência artificial', 'Aracaju', 'Economia'];
   let telaTab = 'comando', newsTopic = NEWS_TOPICS[0], telaMirror = null, telaSeq = 0;
   const getJson = async (path) => {
@@ -2234,11 +2588,23 @@
       } else out.push(errCard('AGENDA TÁTICA', lem.reason));
       return out;
     }
+    if (tab === 'agenda' || tab === 'financeiro') {
+      try { return [await loadPanel(tab)]; } catch (err) { return [errCard(TELA_TABS[tab], err)]; }
+    }
     if (tab === 'noticias') {
       try {
         const d = await getJson('/api/noticias?tema=' + encodeURIComponent(newsTopic));
-        return [{ rotulo: 'RADAR · ' + newsTopic, titulo: (d.noticias || []).length + ' manchetes recentes',
-          itens: (d.noticias || []).map((n) => ({ titulo: n.titulo, detalhe: [n.fonte, n.publicado ? dataHora(n.publicado) : ''].filter(Boolean).join(' · '), abrir: /^https:\/\//.test(n.link || '') ? () => openSafe(n.link) : null })),
+        const all = d.noticias || [];
+        const top = all[0];
+        // Manchete principal em destaque; as outras em lista.
+        return [{ rotulo: 'RADAR · ' + newsTopic, titulo: all.length + ' manchetes recentes',
+          corpo: top ? () => {
+            const box = el('div', 'destaque-n');
+            box.append(el('span', null, 'Destaque · ' + (top.fonte || 'notícia')), el('b', null, top.titulo), el('small', null, [top.fonte, top.publicado ? dataHora(top.publicado) : ''].filter(Boolean).join(' · ')));
+            if (/^https:\/\//.test(top.link || '')) { const b = el('button', 'btn', 'Abrir'); b.type = 'button'; b.style.marginTop = '10px'; b.onclick = () => openSafe(top.link); box.append(b); }
+            return box;
+          } : null,
+          itens: all.slice(1).map((n) => ({ titulo: n.titulo, detalhe: [n.fonte, n.publicado ? dataHora(n.publicado) : ''].filter(Boolean).join(' · '), abrir: /^https:\/\//.test(n.link || '') ? () => openSafe(n.link) : null })),
           vazio: 'Nada encontrado agora.', rodape: 'fonte: Google Notícias (RSS)' }];
       } catch (err) { return [errCard('RADAR DE NOTÍCIAS', err)]; }
     }
@@ -2254,6 +2620,7 @@
             detalhe: nome === 'Cérebro' && sync?.at ? 'última sincronização: ' + dataHora(sync.at) : undefined,
             alerta: cls === 'warn',
           })) });
+        if (v.fontes) out.push(fontesCard(v));
       } else out.push(errCard('NÚCLEO · SERVIÇOS', st.reason));
       if (sis.status === 'fulfilled') {
         const list = sis.value.sistemas || [];

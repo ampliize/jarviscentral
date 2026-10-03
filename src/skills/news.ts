@@ -54,7 +54,21 @@ export class NewsService {
 
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
 
+  /** Última consulta de verdade: true = respondeu, false = falhou, null = ainda não consultou. */
+  lastOk: boolean | null = null;
+
   async search(topic?: string | null): Promise<NewsItem[]> {
+    try {
+      const data = await this.fetchNews(topic);
+      this.lastOk = true;
+      return data;
+    } catch (err) {
+      this.lastOk = false;
+      throw err;
+    }
+  }
+
+  private async fetchNews(topic?: string | null): Promise<NewsItem[]> {
     const q = (topic ?? "").trim().slice(0, 120);
     const key = q.toLowerCase();
     const hit = this.cache.get(key);
