@@ -8,6 +8,7 @@ import type { SystemCheck } from "./skills/monitor.js";
 import type { Reminder } from "./skills/reminders.js";
 import type { Weather } from "./skills/weather.js";
 import type { Agenda, AgendaEvent } from "./skills/panels.js";
+import type { ReportMeta } from "./skills/missions.js";
 
 /**
  * Briefing do dia: junta o CRM (recurso "briefing" da integration-api) e as
@@ -286,6 +287,26 @@ function agendaCard(agenda: Agenda): BriefingCard | null {
   };
 }
 
+/** Relatórios das missões que o dono ainda não abriu (o que o Jarvis fez sozinho). */
+function reportsCard(list: ReportMeta[]): BriefingCard | null {
+  if (!list.length) return null;
+  const asks = list.reduce((n, r) => n + r.precisa_de_voce.length, 0);
+  return {
+    id: "relatorios",
+    rotulo: "JARVIS · RELATÓRIOS",
+    titulo: list.length === 1 ? "Um relatório novo" : `${list.length} relatórios novos`,
+    destaque: { valor: String(asks), legenda: asks === 1 ? "pede você" : "pedem você" },
+    itens: list.slice(0, 6).map((r) => ({
+      titulo: r.titulo,
+      detalhe: [r.missao, r.precisa_de_voce.length ? `${r.precisa_de_voce.length} ${r.precisa_de_voce.length === 1 ? "ponto precisa" : "pontos precisam"} de você` : ""].filter(Boolean).join(" · "),
+      alerta: r.precisa_de_voce.length > 0,
+    })),
+    fala:
+      `${list.length === 1 ? "Tenho um relatório novo" : `Tenho ${list.length} relatórios novos`}: ${spokenList(list.slice(0, 3).map((r) => r.titulo))}.` +
+      (asks ? ` ${asks === 1 ? "Um ponto precisa" : `${asks} pontos precisam`} da sua decisão.` : ""),
+  };
+}
+
 /** Lembretes de hoje e os que passaram da hora sem ser concluídos (esses contam como atenção). */
 function remindersCard(list: Reminder[], tz: string, now: Date): BriefingCard | null {
   if (!list.length) return null;
@@ -369,6 +390,8 @@ export interface BuildInput {
   alertas?: Alert[];
   /** Agenda de hoje no CRM (null = indisponível). */
   agenda?: Agenda | null;
+  /** Relatórios das missões ainda não lidos. */
+  relatorios?: ReportMeta[];
   /** Rascunhos dos agentes de IA (null = não deu para ler) e as revisões do guardião. */
   agentes?: { rascunhos: AgentRun[] | null; revisoes: Review[] };
   ownerName: string;
@@ -386,6 +409,8 @@ export function buildBriefing(input: BuildInput): Briefing {
   if (input.clima) cards.push(weatherCard(input.clima));
   const agenda = input.agenda ? agendaCard(input.agenda) : null;
   if (agenda) cards.push(agenda);
+  const reports = reportsCard(input.relatorios ?? []);
+  if (reports) cards.push(reports);
   const reminders = remindersCard(input.lembretes ?? [], tz, now);
   if (reminders) cards.push(reminders);
   const lateReminders = (input.lembretes ?? []).filter((r) => Date.parse(r.quando) < now.getTime()).length;
@@ -421,8 +446,8 @@ export function buildBriefing(input: BuildInput): Briefing {
     cards.push({ id: "crm", rotulo: "CRM · CONEXÃO", titulo: "CRM indisponível", itens: [{ titulo: why, alerta: true }], fala: why });
   }
 
-  // Lembretes atrasados e sistemas com problema contam mesmo sem o CRM.
-  atencao += lateReminders + badSystems + (input.alertas?.length ?? 0);
+  // Lembretes atrasados, sistemas com problema e decisões pedidas nos relatórios contam mesmo sem o CRM.
+  atencao += lateReminders + badSystems + (input.alertas?.length ?? 0) + (input.relatorios ?? []).reduce((n, r) => n + r.precisa_de_voce.length, 0);
 
   const brain = brainCard(input.pendencias, input.inbox);
   if (brain) cards.push(brain);
@@ -474,12 +499,21 @@ export async function gatherOperation(
   const agentes = guard && config.ampliize
     ? Promise.all([guard.drafts({ dias: 7 }).catch(() => null), guard.stored().catch(() => [])]).then(([rascunhos, revisoes]) => ({ rascunhos, revisoes }))
     : Promise.resolve(undefined);
-  const [crm, clima, lembretes, pendencias, inbox, sistemas, alertas, agentesData, agenda] = await Promise.all([
+  const [crm, clima, lembretes, pendencias, inbox, sistemas, alertas, agentesData, agenda, relatorios] = await Promise.all([
     config.ampliize
-      ? (callResource({ ...config.ampliize, fetchImpl, timeoutMs: 15_000 }, "briefing") as Promise<CrmBriefing>).catch((err) => {
-          crmError = err instanceof ResourceApiError ? err.message : "falha na consulta";
-          return null;
-        })
+      ? (callResource({ ...config.ampliize, fetchImpl, timeoutMs: 15_000 }, "briefing") as Promise<CrmBriefing>)
+          .then((d) => {
+            // Resposta fora do formato (CRM antigo ou erro do proxy) não derruba o briefing.
+            if (!d || typeof d !== "object" || !d.financeiro || !d.tarefas || !d.comercial || !d.sistema) {
+              crmError = "resposta fora do formato";
+              return null;
+            }
+            return d;
+          })
+          .catch((err) => {
+            crmError = err instanceof ResourceApiError ? err.message : "falha na consulta";
+            return null;
+          })
       : Promise.resolve(null),
     skills ? skills.weather.get(skills.city).catch(() => null) : Promise.resolve(null),
     skills ? skills.reminders.open().then((list) => list.filter(endOfToday(now, config.timeZone))) : Promise.resolve([]),
@@ -490,6 +524,10 @@ export async function gatherOperation(
     agentes,
     // Só o briefing usa a agenda; a mesma leitura de 7 dias do painel (cache de 60 s), filtrada para hoje no card.
     withAgenda && skills?.panels?.configured ? skills.panels.panel("agenda").then((a) => a as Agenda).catch(() => null) : Promise.resolve(null),
+    // Não lidos dos últimos 3 dias.
+    withAgenda && skills?.missions
+      ? skills.missions.reports(20).then((l) => l.filter((r) => !r.lido && Date.parse(r.criado_em) > now.getTime() - 3 * 86_400_000)).catch(() => [])
+      : Promise.resolve([] as ReportMeta[]),
   ]);
   return {
     crm,
@@ -503,6 +541,7 @@ export async function gatherOperation(
     alertas,
     agentes: agentesData,
     agenda,
+    relatorios,
     ownerName: config.ownerName,
     timeZone: config.timeZone,
     now,
