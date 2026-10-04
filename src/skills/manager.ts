@@ -170,6 +170,7 @@ export const MANAGER_PACK: { chave: string; titulo: string; area: Mission["area"
 2. Caixa: cobranças vencidas e as que vencem em 3 dias, contas a pagar da semana (ampliize_financeiro, ampliize_panorama). Para cada vencida, escreva a mensagem de cobrança em rascunho (skill de cobrança, se existir).
 3. Entregas: tarefas atrasadas, bloqueadas e com prazo hoje, POR PESSOA (ampliize_projetos, ampliize_atividades, agenda). Quem precisa ser cobrado e do quê.
 4. Funil: ampliize_fila_sdr (follow-ups vencidos primeiro, depois as melhores novas abordagens, respeitando o limite do dia) e ampliize_comercial (follow-ups atrasados, fechamentos).
+   Conversas: ampliize_whatsapp_conversas. Todo lead esperando resposta nossa vira ordem para responder HOJE, com o próximo passo sugerido para fechar (qualificar, marcar reunião, proposta). Quem pediu para sair: encerrar com motivo de perda.
 5. Agentes: agentes_revisar nos rascunhos dos últimos dias; aponte o que está fora da linha.
 6. Riscos e sistemas: riscos_listar e sistemas_status, só o que mudou ou é crítico.`,
     entrega: "Relatório do dia com ordens por pessoa e por agente (com prazo), lista de leads para o Agente SDR gerar a abordagem e mensagens de cobrança em rascunho.",
@@ -201,7 +202,7 @@ Entregue 3 a 5 ideias com roteiro curto (gancho nos 3 primeiros segundos, desenv
     area: "agentes",
     frequencia: { tipo: "semanal", dias_semana: [3], hora: "09:00" },
     instrucoes: `Acompanhe a construção da operação com agentes de IA (SDR, prospecção, Closer, Conteúdo e os próximos) e do funil, usando o plano em _jarvis/plano-agentes.md.
-Verifique no CRM o que já está rodando de verdade: fila do SDR (ampliize_fila_sdr), rascunhos e qualidade dos agentes (agentes_revisar), funil (ampliize_comercial, ampliize_comercial_historico). Compare com o plano: o que avançou, o que travou e por quê.
+Verifique no CRM o que já está rodando de verdade: fila do SDR (ampliize_fila_sdr), conversas do WhatsApp e taxa de resposta (ampliize_whatsapp_conversas com dias 7: respostas ÷ enviadas), rascunhos e qualidade dos agentes (agentes_revisar), funil (ampliize_comercial, ampliize_comercial_historico). Compare com o plano: o que avançou, o que travou e por quê.
 Proponha os próximos 3 passos da semana com dono e prazo, e aponte qual agente novo faz mais sentido construir a seguir e por quê (com base nos gargalos medidos).`,
     entrega: "Status do plano (feito / em andamento / travado), métricas do funil e dos agentes, 3 próximos passos com dono e prazo.",
   },

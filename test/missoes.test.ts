@@ -225,3 +225,36 @@ test("missões: delegar pela conversa deixa aguardando o dono; a IA não consegu
   assert.ok(on.proxima);
   assert.deepEqual(safeLinks([{ rotulo: "a", url: `jarvis:missao/${id}` }, { rotulo: "b", url: "jarvis:missao/x" }]).map((l) => l.url), [`jarvis:missao/${id}`]);
 });
+
+test("whatsapp: avisa só lead esperando resposta nossa, uma vez, sem telefone", async () => {
+  const dataDir = await tmp();
+  let crmCalls = 0;
+  const conversas = [
+    { id: 7, nome: "Clínica A", aguardando_nossa_resposta: true, texto_do_lead: "Quanto custa?", lead_escreveu_em: "2026-10-04T12:00:00.123456+00:00", telefone: "nao deveria vir" },
+    { id: 8, nome: "Imobiliária B", aguardando_nossa_resposta: false, texto_do_lead: "Ok", lead_escreveu_em: "2026-10-04T11:00:00.000Z" },
+  ];
+  const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith("https://crm.test")) {
+      const { resource, params } = JSON.parse(String(init!.body));
+      assert.equal(resource, "whatsapp_inbox");
+      assert.deepEqual(params, { dias: 2 });
+      crmCalls++;
+      return json({ data: { conversas } });
+    }
+    return json({}, 404);
+  }) as typeof fetch;
+  const app = await createApp({
+    config: loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN, DATA_DIR: dataDir, OPENAI_API_KEY: "sk-test", AMPLIIZE_API_URL: "https://crm.test/api", AMPLIIZE_API_KEY: "amp_" + "a".repeat(48) }),
+    fetchImpl,
+    noScheduler: true,
+  });
+  assert.equal((await app.request("/api/whatsapp/avisos")).status, 401);
+  const first = (await (await app.request("/api/whatsapp/avisos?desde=2026-10-04T00:00:00.000Z", { headers: auth })).json()) as any;
+  assert.deepEqual(first.conversas, [{ id: 7, nome: "Clínica A", texto: "Quanto custa?", quando: "2026-10-04T12:00:00.123456+00:00" }]);
+  assert.equal(first.agora, "2026-10-04T12:00:00.123456+00:00");
+  // Com o cursor devolvido, o mesmo aviso não se repete (e o CRM não é chamado de novo em 30 s).
+  const again = (await (await app.request(`/api/whatsapp/avisos?desde=${encodeURIComponent(first.agora)}`, { headers: auth })).json()) as any;
+  assert.deepEqual(again.conversas, []);
+  assert.equal(Date.parse(again.agora), Date.parse(first.agora));
+  assert.equal(crmCalls, 1);
+});

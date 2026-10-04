@@ -14,6 +14,15 @@ import { BrainGit } from "./memory/brainGit.js";
 import { MAX_AUDIO_BYTES, audioExtension, speak, transcribe } from "./voice.js";
 import { ensureAccessToken } from "./setup.js";
 import { callResource } from "./connectors/resourceApi.js";
+
+/** Conversa do recurso whatsapp_inbox do CRM (só os campos que o HUD usa). */
+interface WhatsappConversa {
+  id: number;
+  nome: string | null;
+  aguardando_nossa_resposta: boolean;
+  texto_do_lead: string | null;
+  lead_escreveu_em: string | null;
+}
 import { buildOperation, gatherOperation, loadBriefing } from "./briefing.js";
 import { AlertBook } from "./skills/alerts.js";
 import { operationConnector } from "./skills/operation.js";
@@ -504,6 +513,30 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     // Cursor = o relatório mais novo entregue (não a hora do servidor): um relatório
     // que ainda estava sendo gravado durante a consulta chega na próxima.
     return c.json({ relatorios: list, agora: list.length ? list[list.length - 1]!.criado_em : since.toISOString() });
+  });
+  // Lead respondeu no WhatsApp da Ampliize: o HUD avisa (até 1 consulta ao CRM a cada 30 s).
+  let wppCache: { at: number; conversas: WhatsappConversa[] } | null = null;
+  app.get("/api/whatsapp/avisos", async (c) => {
+    const raw = c.req.query("desde") ?? "";
+    const since = Number.isFinite(Date.parse(raw)) ? new Date(raw).toISOString() : new Date(Date.now() - 12 * 3600_000).toISOString();
+    if (!config.ampliize) return c.json({ conversas: [], agora: since });
+    if (!wppCache || Date.now() - wppCache.at > 30_000) {
+      try {
+        const data = (await callResource({ ...config.ampliize, fetchImpl, timeoutMs: 8_000 }, "whatsapp_inbox", { dias: 2 })) as { conversas?: unknown };
+        wppCache = { at: Date.now(), conversas: Array.isArray(data?.conversas) ? (data.conversas as WhatsappConversa[]) : [] };
+      } catch {
+        return c.json({ conversas: [], agora: since });
+      }
+    }
+    // Datas comparadas como instantes: o CRM devolve no formato do Postgres (+00:00, microssegundos).
+    const at = (iso: string | null) => (iso ? Date.parse(iso) : NaN);
+    const sinceMs = Date.parse(since);
+    const novas = wppCache.conversas.filter((x) => x.aguardando_nossa_resposta && at(x.lead_escreveu_em) > sinceMs);
+    const agora = novas.reduce((max, x) => (at(x.lead_escreveu_em) > Date.parse(max) ? x.lead_escreveu_em! : max), since);
+    return c.json({
+      conversas: novas.map((x) => ({ id: x.id, nome: x.nome, texto: x.texto_do_lead, quando: x.lead_escreveu_em })),
+      agora,
+    });
   });
   app.get("/api/relatorios/:id", async (c) => {
     const id = c.req.param("id");

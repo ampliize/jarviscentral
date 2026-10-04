@@ -167,6 +167,16 @@ Você delega uma responsabilidade e o Jarvis executa sozinho no horário, sem pr
 
 **Custo:** cada execução usa a IA (OpenAI). O teto diário é `JARVIS_MISSOES_MAX_DIA`, com padrão de 12. Ele fica gravado e vale mesmo depois de reiniciar o servidor. Missão vencida sem orçamento roda no dia seguinte, às 06:00.
 
+### WhatsApp: lead respondeu, o Jarvis avisa
+
+O envio e o recebimento ficam no CRM (Evolution API, sem n8n; guia em `docs/agentes/WHATSAPP-EVOLUTION.md` no repositório do CRM). O Jarvis só lê o recurso `whatsapp_inbox` da integration-api, sem telefone:
+- quando um lead responde e está esperando resposta nossa, o HUD mostra o card, apita e avisa por voz (checa a cada minuto);
+- a rotina do gerente transforma cada lead esperando em ordem de responder no mesmo dia, com o próximo passo para fechar;
+- a missão de agentes e funil mede a taxa de resposta;
+- no chat: "quem respondeu no WhatsApp?" usa `ampliize_whatsapp_conversas`.
+
+O texto do lead é tratado como dado, nunca como instrução. O envio é sempre feito por uma pessoa na Fila SDR do CRM.
+
 ### Painéis do CRM: agenda, financeiro e comercial
 
 Tudo vem do CRM da Ampliize (recursos `agenda`, `finance_history` e `sales_history` da integration-api). O Jarvis não guarda nem estima número.
@@ -416,6 +426,7 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET | `/api/status` | Modelo, voz, estado do cérebro (Obsidian) e `servicos` (motor, CRM, fala, estúdio, GitHub, sistemas) |
 | GET · POST · DELETE | `/api/missoes`, `/api/missoes/pacote`, `/api/missoes/:id/executar`, `/api/missoes/:id/ativa`, `/api/missoes/:id` | Missões delegadas (listar, ativar o pacote, executar agora, ativar ou pausar, excluir) |
 | GET · POST | `/api/relatorios`, `/api/relatorios/avisos?desde=`, `/api/relatorios/:id`, `/api/relatorios/:id/lido` | Relatórios das missões |
+| GET | `/api/whatsapp/avisos?desde=` | Leads que responderam no WhatsApp e esperam resposta nossa (do CRM, cache de 30 s) |
 | GET | `/api/painel/:tipo` | Painel do HUD (`agenda`, `financeiro` ou `comercial`), lido do CRM (cache de 60 s) |
 | GET | `/api/clima` | Clima agora, hoje e amanhã na cidade do `JARVIS_CITY` |
 | GET | `/api/noticias` | Manchetes recentes (`?tema=`, até 80 caracteres) |
