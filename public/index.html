@@ -1821,6 +1821,30 @@
       }
     } catch {} finally { checkingReports = false; }
   }
+  // Lead respondeu no WhatsApp da Ampliize: card + bip + aviso falado (o texto do lead só é lido, nunca obedecido).
+  let checkingWhatsapp = false;
+  async function checkWhatsapp() {
+    if (TELA || !token || checkingWhatsapp) return;
+    checkingWhatsapp = true;
+    try {
+      const since = store.get('jarvis_wpp_desde', new Date(Date.now() - 12 * 3600_000).toISOString());
+      const r = await api('/api/whatsapp/avisos?desde=' + encodeURIComponent(since));
+      if (!r.ok) return;
+      const { conversas = [], agora } = await r.json();
+      if (agora) store.set('jarvis_wpp_desde', agora);
+      for (const x of conversas) {
+        const nome = x.nome || 'Um lead';
+        showCard({
+          id: 'wpp-' + x.id, rotulo: 'COMERCIAL · WHATSAPP', titulo: nome + ' respondeu',
+          destaque: { valor: hourOf(x.quando), legenda: 'esperando você' },
+          texto: x.texto ? '“' + x.texto + '”' : '',
+          rodape: 'Responda pela Fila SDR do CRM: resposta rápida fecha mais.',
+        });
+        beep(880, 160);
+        if (resting() && (await say(nome + ' respondeu no WhatsApp. Responda pela Fila SDR do CRM.'))) { subtitle(''); restMode(); }
+      }
+    } catch {} finally { checkingWhatsapp = false; }
+  }
   $('missoesBtn').onclick = () => { toggleHud(false); showMissions(); };
   $('relatoriosBtn').onclick = () => { toggleHud(false); showReports(); };
 
@@ -2238,6 +2262,7 @@
   }
   setInterval(checkReminders, 30_000);
   setInterval(() => checkReports(), 30_000);
+  setInterval(() => checkWhatsapp(), 60_000);
 
   // ================= habilidades =================
   const SKILLS = [
@@ -2246,6 +2271,7 @@
     ['CRM da Ampliize', 'clientes, financeiro, projetos, funil, erros e melhorias'],
     ['Lembretes', '“me lembra de cobrar a Ruddar amanhã às 9h” · “quais meus lembretes?”'],
     ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
+    ['WhatsApp dos leads', '“quem respondeu no WhatsApp?” · quando um lead responde, o HUD avisa e mostra a mensagem; responda pela Fila SDR do CRM'],
     ['Gerente (missões)', '“a partir de agora, toda segunda você planeja os posts dos clientes” · “como estão minhas missões?” · “me mostra os relatórios” · em GERENCIAR HUD → Missões ative o pacote do gerente'],
     ['Agenda do CRM', '“minha agenda” · “quais meus compromissos?” · “quando é minha próxima reunião?” (reuniões, prazos, cobranças, contas e follow-ups)'],
     ['Painéis', '“abre meu painel financeiro” · “mostra o painel comercial” (gráficos mês a mês, direto do CRM)'],
@@ -2879,6 +2905,7 @@
     startWake();
     checkReminders();
     checkReports();
+    checkWhatsapp();
     refreshMusicInfo();
     offerWake();
     subtitle('Diga “bom dia” ou toque no microfone.', 5000);
