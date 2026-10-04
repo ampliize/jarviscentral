@@ -8,9 +8,10 @@ import type { BrainGit } from "./brainGit.js";
  * DATA_DIR/brain. Arquivos .md comuns — legíveis, versionáveis em git e sem
  * formato proprietário ("memória blindada").
  *
- * O Jarvis só escreve em brain/inbox/: são propostas de nota que você revisa
- * e move para a pasta certa no Obsidian. As pastas curadas (clientes,
- * decisoes, processos, reunioes...) só são lidas.
+ * O Jarvis só escreve em brain/inbox/ (propostas de nota que você revisa e
+ * move para a pasta certa no Obsidian) e em brain/relatorios/ (os relatórios
+ * das missões que você delegou). As pastas curadas (clientes, decisoes,
+ * processos, reunioes...) só são lidas.
  */
 const MAX_NOTE_CHARS = 8_000;
 const MAX_FILES_SCANNED = 2_000;
@@ -55,6 +56,15 @@ export interface SearchHit {
 
 const MAX_CONTEXT_CHARS = 4_000;
 
+/** <dir>/<base>.md, ou -2, -3… se já existir (nunca sobrescreve). */
+async function uniqueFile(dir: string, base: string): Promise<string> {
+  let file = path.join(dir, `${base}.md`);
+  for (let i = 2; await fs.stat(file).then(() => true, () => false); i++) file = path.join(dir, `${base}-${i}.md`);
+  return file;
+}
+
+const stripComments = (raw: string) => raw.replace(/<!--[\s\S]*?-->/g, "");
+
 export class Brain {
   readonly root: string;
   /** Sincronização com o vault do Obsidian (Git). Null = memória só local. */
@@ -70,8 +80,7 @@ export class Brain {
    */
   async context(): Promise<string> {
     const raw = await fs.readFile(path.join(this.root, "_jarvis", "contexto.md"), "utf8").catch(() => "");
-    const text = raw
-      .replace(/<!--[\s\S]*?-->/g, "")
+    const text = stripComments(raw)
       .replace(/^#\s*Contexto permanente\s*$/im, "")
       .trim();
     return text.slice(0, MAX_CONTEXT_CHARS);
@@ -135,11 +144,7 @@ export class Brain {
   async propose(title: string, body: string, tags: string[] = []): Promise<string> {
     await this.init();
     const date = new Date().toISOString().slice(0, 10);
-    const base = `${date}-${slugify(title)}`;
-    let file = path.join(this.root, "inbox", `${base}.md`);
-    for (let i = 2; await fs.stat(file).then(() => true, () => false); i++) {
-      file = path.join(this.root, "inbox", `${base}-${i}.md`);
-    }
+    const file = await uniqueFile(path.join(this.root, "inbox"), `${date}-${slugify(title)}`);
     const safeTags = tags.map((t) => slugify(t)).filter(Boolean);
     const frontmatter = [
       "---",
@@ -153,6 +158,26 @@ export class Brain {
     ].join("\n");
     await fs.writeFile(file, `${frontmatter}${body.slice(0, MAX_NOTE_CHARS)}\n`, { flag: "wx" });
     return path.relative(this.root, file);
+  }
+
+  /** Relatório de missão em relatorios/AAAA-MM/ (nunca sobrescreve). Retorna o caminho no vault. */
+  async writeReport(title: string, body: string, at = new Date(), timeZone = "America/Maceio"): Promise<string> {
+    // Data e hora no fuso do dono (um relatório das 21h30 não vai para o dia seguinte).
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+    const day = `${get("year")}-${get("month")}-${get("day")}`;
+    const dir = path.join(this.root, "relatorios", day.slice(0, 7));
+    await fs.mkdir(dir, { recursive: true });
+    const file = await uniqueFile(dir, `${day}-${get("hour")}${get("minute")}-${slugify(title)}`);
+    await fs.writeFile(file, body.endsWith("\n") ? body : `${body}\n`, { flag: "wx" });
+    return path.relative(this.root, file);
+  }
+
+  /** Nota de _jarvis/ escrita pelo dono (ex.: operacao.md), sem comentários HTML. */
+  async jarvisNote(name: string, max = 12_000): Promise<string> {
+    if (!/^[a-z0-9-]+\.md$/.test(name)) return "";
+    const raw = await fs.readFile(path.join(this.root, "_jarvis", name), "utf8").catch(() => "");
+    return stripComments(raw).trim().slice(0, max);
   }
 
   /** Envia a nota para o vault (se o Git estiver configurado). Nunca derruba a resposta. */

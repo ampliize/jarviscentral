@@ -79,6 +79,12 @@ export function ampliizeConnector(api: ResourceApiOptions): Connector {
         { dias: nullableInt("Quantos dias a partir de hoje (1 a 31, padrão 7). Para 'hoje' use 1.") },
       ),
       tool(
+        "ampliize_fila_sdr",
+        "Fila do SDR: follow-ups vencidos e os melhores leads para a 1ª abordagem (por score), com quantas mensagens de prospecção (abordagens e follow-ups) já saíram hoje e quantas restam no limite de 20. Sem telefone: o envio é sempre feito por uma pessoa no CRM.",
+        "sdr_queue",
+        { limite: nullableInt("Quantos leads trazer (1 a 50, padrão 20).") },
+      ),
+      tool(
         "ampliize_financeiro_historico",
         "Financeiro mês a mês por competência (faturado, recebido, custos, resultado) com a previsão dos próximos meses e a receita recorrente. Use para tendência, comparação entre meses e projeção de caixa.",
         "finance_history",

@@ -208,6 +208,13 @@
   .passos li i { width:26px; height:26px; border-radius:6px; border:1px solid var(--line); display:grid; place-items:center; font-style:normal; color:var(--muted); }
   .passos li.on { opacity:1; } .passos li.on i { border-color:var(--cyan); color:var(--cyan); box-shadow:0 0 10px rgba(63,214,255,.4); }
   .itens .abrir { margin-left:auto; flex:none; }
+  .itens .acoes-item { margin-left:auto; flex:none; display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
+  .itens .acoes-item .btn { padding:6px 9px; font-size:10px; }
+  .relatorio-texto { margin-top:12px; font-size:14px; line-height:1.6; color:#dcefff; }
+  .relatorio-texto h3 { margin:16px 0 6px; font:600 10px var(--mono); letter-spacing:.16em; text-transform:uppercase; color:var(--cyan); }
+  .relatorio-texto p { margin:6px 0; overflow-wrap:anywhere; }
+  .relatorio-texto ul { margin:6px 0; padding-left:18px; }
+  .relatorio-texto li { margin:3px 0; overflow-wrap:anywhere; }
   /* ---------- painéis (agenda, financeiro, comercial): dados do CRM ---------- */
   .viz { --s1:#3987e5; --s2:#d95926; --grid:rgba(143,180,204,.16); --ink2:#8fb4cc; }
   .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:8px; margin-top:14px; }
@@ -425,6 +432,8 @@
       <button class="btn" type="button" id="nova">Nova conversa</button>
       <button class="btn" type="button" id="skillsBtn">Habilidades</button>
       <button class="btn" type="button" id="fontesBtn">Fontes de dados</button>
+      <button class="btn" type="button" id="missoesBtn">Missões</button>
+      <button class="btn" type="button" id="relatoriosBtn">Relatórios</button>
       <button class="btn" type="button" id="studioBtn">Sites (estúdio)</button>
       <input type="file" id="studioVideo" accept="video/mp4,video/webm,video/quicktime" hidden>
       <button class="btn" type="button" id="sair">Sair</button>
@@ -630,6 +639,11 @@
           if (it.detalhe) b.append(el('small', null, it.detalhe));
           li.append(b);
           if (it.abrir) { const a = el('button', 'btn abrir', 'Abrir'); a.type = 'button'; a.onclick = it.abrir; li.append(a); }
+          if (Array.isArray(it.acoes) && it.acoes.length) {
+            const box = el('div', 'acoes-item');
+            for (const ac of it.acoes) { const a = el('button', 'btn', ac.texto); a.type = 'button'; a.onclick = ac.fn; box.append(a); }
+            li.append(box);
+          }
           ol.append(li);
         });
         card.append(ol);
@@ -1549,6 +1563,8 @@
         /^(jarvis )?(painel|dashboard) (financeiro|de financas|do financeiro)$/.test(plain) || /^(jarvis )?(abr[ae]|mostr[ae]) (o |meu )?financeiro$/.test(plain)) return 'financeiro';
     if (new RegExp('^(jarvis )?' + verb + '( o| a| meu| minha)* (painel|dashboard|grafico|graficos)( do| da| de)? (comercial|vendas|funil)$').test(plain) ||
         /^(jarvis )?(painel|dashboard) (comercial|de vendas|do comercial)$/.test(plain)) return 'comercial';
+    if (/^(jarvis )?((abr[ae]|mostr[ae]|ver) )?(as |minhas )?missoes$/.test(plain)) return 'missoes';
+    if (/^(jarvis )?((abr[ae]|mostr[ae]|ver) )?(os |meus )?relatorios$/.test(plain)) return 'relatorios';
     // Só o pedido da agenda em si; perguntas como "o que tenho amanhã?" vão para a IA (que vê o CRM e os lembretes).
     if (/^(jarvis )?((abr[ae]|abrir|mostr[ae]|mostrar|ver|exib[ae]) (a |minha )?agenda( da semana)?|minha agenda( da semana)?|agenda( da semana)?)$/.test(plain)) return 'agenda';
     return null;
@@ -1573,6 +1589,12 @@
     if (BRIEF_RE.test(plain)) return runBriefing({ force: spoken });
     // "abre meu painel financeiro", "minha agenda": abre direto, sem gastar a IA.
     const kind = panelIntent(plain);
+    if (kind === 'missoes' || kind === 'relatorios') {
+      musicSkipOnce = false;
+      await (kind === 'missoes' ? showMissions() : showReports());
+      restMode();
+      return;
+    }
     if (kind) {
       setBusy(true);
       setMode('thinking');
@@ -1602,7 +1624,8 @@
       sessionStorage.setItem('jarvis_conversation', conversationId);
       const tools = (data.tools || []).map((t) => t.name.replace(/^ampliize_|^memoria_/, '') + (t.ok ? '' : ' (falhou)'));
       // Links das ferramentas (ex.: "Criar no Lovable") viram botões; só destinos conhecidos.
-      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)) || /^jarvis:estudio\/[a-f0-9]{24}$/.test(String(l.url)) || PANEL_LINK.test(String(l.url)));
+      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)) || /^jarvis:estudio\/[a-f0-9]{24}$/.test(String(l.url)) || PANEL_LINK.test(String(l.url)) || MISSION_LINK.test(String(l.url)));
+      const missionLink = links.map((l) => MISSION_LINK.exec(l.url)).find(Boolean);
       const panelLink = links.map((l) => PANEL_LINK.exec(l.url)).find(Boolean);
       // Produção de site começou: acompanha em segundo plano.
       for (const l of links) { const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url); if (m) watchStudio(m[1]); }
@@ -1614,14 +1637,16 @@
         botoes: links.map((l) => ({
           texto: l.rotulo,
           fn: () => {
-            const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url), pm = PANEL_LINK.exec(l.url);
-            if (m) showStudio(m[1]); else if (pm) openPanel(pm[1], { speak: false }); else window.open(l.url, '_blank', 'noopener,noreferrer');
+            const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url), pm = PANEL_LINK.exec(l.url), mm = MISSION_LINK.exec(l.url);
+            if (m) showStudio(m[1]); else if (pm) openPanel(pm[1], { speak: false }); else if (mm) confirmMission(mm[1]); else window.open(l.url, '_blank', 'noopener,noreferrer');
           },
         })),
       });
       setBusy(false); // resposta chegou: já dá para interromper a fala com o mic
       // A IA pediu um painel: abre junto (a resposta fica no canal e na doca).
       if (panelLink) openPanel(panelLink[1], { speak: false });
+      // Missão nova pela conversa: card de confirmação (só roda depois do toque em Ativar).
+      if (missionLink) confirmMission(missionLink[1]);
       if (await say(data.answer, { force: spoken })) subtitle('');
     } catch (err) {
       showError(err.message || 'Sem conexão com o servidor.');
@@ -1639,6 +1664,165 @@
     q.value = '';
     askJarvis(message);
   });
+
+  // ================= gerente: missões e relatórios =================
+  const MISSION_LINK = /^jarvis:missao\/(m_[a-f0-9]{12})$/;
+  async function confirmMission(id) {
+    try {
+      const r = await api('/api/missoes');
+      const d = await r.json(); if (!r.ok) throw new Error(d.error);
+      const m = (d.missoes || []).find((x) => x.id === id);
+      if (!m) return;
+      showCard({
+        id: 'confirmar-' + id, rotulo: 'JARVIS · NOVA MISSÃO', titulo: m.titulo,
+        destaque: { valor: m.pendente ? '?' : '✓', legenda: m.pendente ? 'aguardando você' : 'ativa' },
+        texto: m.instrucoes,
+        itens: [{ titulo: 'Quando: ' + m.quando }, { titulo: 'Entrega: ' + m.entrega }],
+        botoes: m.pendente ? [
+          { texto: 'Ativar', fn: async () => {
+            try {
+              const r2 = await api('/api/missoes/' + id + '/ativa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"ativa":true}' });
+              const d2 = await r2.json().catch(() => ({})); if (!r2.ok) throw new Error(d2.error);
+              subtitle('Missão ativada: ' + m.quando + '.', 4000);
+              showMissions();
+            } catch (err) { showError(err.message || 'Não consegui ativar.'); }
+          } },
+          { texto: 'Descartar', fn: async () => { await api('/api/missoes/' + id, { method: 'DELETE' }).catch(() => {}); closeFocus(); subtitle('Missão descartada.', 3000); } },
+        ] : [],
+        rodape: 'eu executo sozinho no horário e entrego relatório · nada é enviado a cliente',
+      });
+    } catch (err) { showError(err.message || 'Não consegui abrir a missão.'); }
+  }
+  const AREA_LABEL = { conteudo: 'Conteúdo', comercial: 'Comercial', financeiro: 'Financeiro', operacao: 'Operação', agentes: 'Agentes', outro: 'Outro' };
+  const whenTxt = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
+  async function showMissions() {
+    let d;
+    try { const r = await api('/api/missoes'); d = await r.json(); if (!r.ok) throw new Error(d.error); } catch (err) { return showError(err.message || 'Não consegui ler as missões.'); }
+    const missing = (d.pacote || []).filter((p) => !p.ativa);
+    const itens = (d.missoes || []).map((m) => m.pendente ? ({
+      titulo: '? ' + m.titulo + ' · ' + m.quando,
+      detalhe: (AREA_LABEL[m.area] || m.area) + ' · aguardando você ativar',
+      alerta: true,
+      acoes: [{ texto: 'Revisar e ativar', fn: () => confirmMission(m.id) }],
+    }) : ({
+      titulo: (m.ativa ? '▶ ' : '⏸ ') + m.titulo + ' · ' + m.quando,
+      detalhe: [AREA_LABEL[m.area] || m.area, m.ativa ? 'próxima: ' + whenTxt(m.proxima) : 'pausada',
+        m.ultima ? (m.ultima.ok ? 'última: ok em ' + whenTxt(m.ultima.quando) : 'última falhou: ' + (m.ultima.erro || '')) : 'ainda não rodou'].join(' · '),
+      alerta: !!m.ultima && !m.ultima.ok,
+      acoes: [
+        { texto: 'Executar', fn: () => runMission(m) },
+        { texto: m.ativa ? 'Pausar' : 'Retomar', fn: () => toggleMission(m) },
+      ],
+    }));
+    const botoes = [];
+    if (missing.length) botoes.push({ texto: 'Ativar pacote do gerente (' + missing.length + ')', fn: () => offerPack(missing) });
+    botoes.push({ texto: 'Relatórios', fn: showReports });
+    showCard({
+      id: 'missoes', rotulo: 'JARVIS · GERENTE', titulo: (d.missoes || []).length ? 'Minhas missões' : 'Nenhuma missão ainda',
+      destaque: { valor: String((d.missoes || []).filter((m) => m.ativa).length), legenda: 'ativas' },
+      texto: (d.missoes || []).length ? '' : 'Delegue por voz ("a partir de agora, toda segunda você…") ou ative o pacote do gerente.',
+      itens, botoes,
+      rodape: (d.ia_configurada ? 'executo sozinho no horário · ' : 'falta a OPENAI_API_KEY: as missões não rodam · ') + 'até ' + d.limite_diario + ' execuções por dia',
+    });
+  }
+  function offerPack(missing) {
+    showCard({
+      id: 'pacote', rotulo: 'JARVIS · PACOTE DO GERENTE', titulo: 'Missões recomendadas',
+      texto: 'Eu executo cada uma sozinho no horário e entrego relatório no HUD e no Obsidian. Leio o CRM e o cérebro; ordens para o time ficam no relatório e nada é enviado a cliente. Cada execução usa a IA (custo da OpenAI).',
+      itens: missing.map((p) => ({ titulo: p.titulo, detalhe: p.quando })),
+      botoes: [{ texto: 'Ativar todas', fn: async () => {
+        try {
+          const r = await api('/api/missoes/pacote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chaves: missing.map((p) => p.chave) }) });
+          const d = await r.json(); if (!r.ok) throw new Error(d.error);
+          subtitle(d.criadas.length + ' missões ativadas.', 4000);
+          showMissions();
+        } catch (err) { showError(err.message || 'Não consegui ativar.'); }
+      } }, { texto: 'Agora não', fn: closeFocus }],
+    });
+  }
+  async function runMission(m) {
+    try {
+      const r = await api('/api/missoes/' + m.id + '/executar', { method: 'POST' });
+      const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error);
+      subtitle('Executando "' + m.titulo + '". Aviso quando o relatório ficar pronto.', 5000);
+      logCanal('Jarvis', 'Executando a missão ' + m.titulo + '.');
+    } catch (err) { showError(err.message || 'Não consegui executar.'); }
+  }
+  async function toggleMission(m) {
+    try {
+      const r = await api('/api/missoes/' + m.id + '/ativa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ativa: !m.ativa }) });
+      const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error);
+      showMissions();
+    } catch (err) { showError(err.message || 'Não consegui mudar a missão.'); }
+  }
+  const reportCard = (r) => ({
+    id: 'rel-' + r.id, rotulo: 'RELATÓRIO · ' + String(r.missao || '').toUpperCase(), titulo: r.titulo,
+    destaque: r.precisa_de_voce.length ? { valor: String(r.precisa_de_voce.length), legenda: 'pede você' } : null,
+    texto: r.resumo,
+    itens: [
+      ...r.precisa_de_voce.map((p) => ({ titulo: 'Precisa de você: ' + p, alerta: true })),
+      ...r.ordens.slice(0, 12).map((o) => ({ titulo: o.para + ' · ' + o.tarefa, detalhe: o.prazo ? 'prazo: ' + o.prazo : undefined })),
+    ],
+    botoes: [{ texto: 'Ler completo', fn: () => openReport(r.id) }],
+    rodape: (r.arquivo ? 'no Obsidian: ' + r.arquivo + ' · ' : '') + whenTxt(r.criado_em),
+  });
+  /** Markdown simples do relatório em nós (sem innerHTML: o texto vem da IA). */
+  function reportBody(md) {
+    const box = el('div', 'relatorio-texto');
+    let ul = null;
+    for (const raw of String(md || '').split('\n')) {
+      const line = raw.trim();
+      if (!line || line === '---') { ul = null; continue; }
+      if (/^#\s/.test(line)) continue; // o título já está no card
+      if (/^##+\s/.test(line)) { box.append(el('h3', null, line.replace(/^#+\s*/, ''))); ul = null; continue; }
+      const li = /^[-*]\s+(.*)$/.exec(line);
+      if (li) { if (!ul) { ul = el('ul'); box.append(ul); } ul.append(el('li', null, clean(li[1]))); continue; }
+      ul = null;
+      box.append(el('p', null, clean(line)));
+    }
+    return box;
+  }
+  async function openReport(id) {
+    try {
+      const r = await api('/api/relatorios/' + id);
+      const d = await r.json(); if (!r.ok) throw new Error(d.error);
+      showCard({ ...reportCard(d.meta), botoes: [], texto: '', itens: [], corpo: () => reportBody(d.texto) });
+      api('/api/relatorios/' + id + '/lido', { method: 'POST' }).catch(() => {});
+    } catch (err) { showError(err.message || 'Não consegui abrir o relatório.'); }
+  }
+  async function showReports() {
+    try {
+      const r = await api('/api/relatorios?limite=15');
+      const d = await r.json(); if (!r.ok) throw new Error(d.error);
+      const list = d.relatorios || [];
+      showCard({
+        id: 'relatorios', rotulo: 'JARVIS · RELATÓRIOS', titulo: list.length ? 'Últimos relatórios' : 'Nenhum relatório ainda',
+        destaque: { valor: String(list.filter((x) => !x.lido).length), legenda: 'não lidos' },
+        itens: list.map((x) => ({ titulo: (x.lido ? '' : '● ') + x.titulo, detalhe: x.missao + ' · ' + whenTxt(x.criado_em) + (x.precisa_de_voce.length ? ' · pede você' : ''), alerta: !x.lido && x.precisa_de_voce.length > 0, acoes: [{ texto: 'Abrir', fn: () => openReport(x.id) }] })),
+        vazio: 'Quando uma missão rodar, o relatório aparece aqui.',
+      });
+    } catch (err) { showError(err.message || 'Não consegui ler os relatórios.'); }
+  }
+  // Aviso de relatório pronto (como os lembretes): card, bip e fala curta se eu estiver livre.
+  let checkingReports = false;
+  async function checkReports() {
+    if (TELA || !token || checkingReports) return;
+    checkingReports = true;
+    try {
+      const since = store.get('jarvis_relatorios_desde', new Date(Date.now() - 12 * 3600_000).toISOString());
+      const r = await api('/api/relatorios/avisos?desde=' + encodeURIComponent(since));
+      if (!r.ok) return;
+      const { relatorios = [], agora } = await r.json();
+      if (agora) store.set('jarvis_relatorios_desde', agora);
+      for (const x of relatorios) {
+        showCard(reportCard(x));
+        beep(784, 160);
+        if (resting() && (await say('Relatório pronto: ' + x.titulo + '. ' + (x.resumo || '') + (x.precisa_de_voce.length ? ' Tem ' + x.precisa_de_voce.length + (x.precisa_de_voce.length === 1 ? ' ponto' : ' pontos') + ' para você decidir.' : '')))) { subtitle(''); restMode(); }
+      }
+    } catch {} finally { checkingReports = false; }
+  }
+  $('missoesBtn').onclick = () => { toggleHud(false); showMissions(); };
+  $('relatoriosBtn').onclick = () => { toggleHud(false); showReports(); };
 
   // ================= configuração =================
   function setSync(status) {
@@ -2053,6 +2237,7 @@
     } catch {} finally { checkingReminders = false; }
   }
   setInterval(checkReminders, 30_000);
+  setInterval(() => checkReports(), 30_000);
 
   // ================= habilidades =================
   const SKILLS = [
@@ -2061,6 +2246,7 @@
     ['CRM da Ampliize', 'clientes, financeiro, projetos, funil, erros e melhorias'],
     ['Lembretes', '“me lembra de cobrar a Ruddar amanhã às 9h” · “quais meus lembretes?”'],
     ['Clima', '“vai chover hoje?” · “como está o tempo em Maceió?”'],
+    ['Gerente (missões)', '“a partir de agora, toda segunda você planeja os posts dos clientes” · “como estão minhas missões?” · “me mostra os relatórios” · em GERENCIAR HUD → Missões ative o pacote do gerente'],
     ['Agenda do CRM', '“minha agenda” · “quais meus compromissos?” · “quando é minha próxima reunião?” (reuniões, prazos, cobranças, contas e follow-ups)'],
     ['Painéis', '“abre meu painel financeiro” · “mostra o painel comercial” (gráficos mês a mês, direto do CRM)'],
     ['Notícias', '“notícias de marketing digital” · “o que saiu sobre Aracaju?”'],
@@ -2692,6 +2878,7 @@
     wakePaused = false;
     startWake();
     checkReminders();
+    checkReports();
     refreshMusicInfo();
     offerWake();
     subtitle('Diga “bom dia” ou toque no microfone.', 5000);

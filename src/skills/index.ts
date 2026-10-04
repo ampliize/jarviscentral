@@ -7,6 +7,7 @@ import type { SystemMonitor } from "./monitor.js";
 import { WeatherError, type WeatherService } from "./weather.js";
 
 import type { CrmPanels } from "./panels.js";
+import type { MissionStore } from "./missions.js";
 
 export interface Skills {
   reminders: ReminderStore;
@@ -23,6 +24,8 @@ export interface Skills {
   guard?: AgentGuard;
   /** Painéis do HUD (agenda, financeiro, comercial), lidos do CRM. */
   panels?: CrmPanels;
+  /** Missões delegadas e relatórios do Jarvis gerente. */
+  missions?: MissionStore;
 }
 
 const obj = (properties: Record<string, unknown>) => ({

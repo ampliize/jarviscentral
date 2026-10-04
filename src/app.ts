@@ -37,6 +37,9 @@ import type { Runner } from "./studio/frames.js";
 import type { ImageFormat } from "./studio/images.js";
 import type { NetDeps } from "./studio/net.js";
 import { CrmPanels, PANEL_KINDS, PanelError, panelsConnector, type PanelKind } from "./skills/panels.js";
+import { isMissionId, isReportId, MissionError, MissionRunner, MissionStore, describeFrequency, type Mission } from "./skills/missions.js";
+import { MANAGER_PACK, missionExecutor, missionsConnector } from "./skills/manager.js";
+import type { Connector } from "./connectors/types.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 120;
@@ -51,6 +54,8 @@ const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 export interface AppDeps {
   config: Config;
   fetchImpl?: typeof fetch;
+  /** Testes: não liga o agendador das missões (elas rodam só quando o teste manda). */
+  noScheduler?: boolean;
   /** Testes: esperar o clone do vault antes de responder. */
   awaitBrainSetup?: boolean;
   /** Testes: DNS, certificado e relógio falsos para o monitor de sistemas. */
@@ -67,6 +72,7 @@ export const safeLinks = (links: ToolLink[] = []) =>
     .filter((l) => {
       if (/^jarvis:estudio\/[a-f0-9]{24}$/.test(l.url)) return true;
       if (PANEL_LINK_RE.test(l.url)) return true;
+      if (/^jarvis:missao\/m_[a-f0-9]{12}$/.test(l.url)) return true;
       try {
         const u = new URL(l.url);
         return u.protocol === "https:" && LINK_HOSTS.includes(u.hostname);
@@ -125,7 +131,7 @@ async function readLimited(req: Request, max: number): Promise<ArrayBuffer | nul
   return out.buffer;
 }
 
-export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOptions, studioOptions }: AppDeps) {
+export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOptions, studioOptions, noScheduler }: AppDeps) {
   const brain = new Brain(config.dataDir);
   const store = new ConversationStore(config.dataDir);
   await Promise.all([brain.init(), store.init()]);
@@ -140,6 +146,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     alerts: new AlertBook(brain.root),
     guard: new AgentGuard({ config, brainRoot: brain.root, dataDir: config.dataDir, fetchImpl, context: () => brain.context() }),
     panels: new CrmPanels(config.ampliize ?? null, fetchImpl),
+    missions: new MissionStore(config.dataDir, config.timeZone),
   };
   const audit = new AuditLog(config.dataDir);
   const engine = studioOptions && "creative" in studioOptions ? studioOptions.creative ?? null : studioEngine(config);
@@ -162,6 +169,14 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
   const playbooks = new Playbooks(brain.root);
   const music = new BriefingMusic(config.dataDir);
   const getOperation = async () => buildOperation(await gatherOperation(config, brain, fetchImpl, new Date(), skills));
+  // Jarvis gerente: executa as missões delegadas sozinho, com as mesmas ferramentas (só leitura).
+  let allConnectors: Connector[] = [];
+  const missionStore = skills.missions!;
+  const runner = new MissionRunner(
+    missionStore,
+    missionExecutor({ config, brain, store: missionStore, connectors: () => allConnectors, playbooksIndex: () => playbooks.index(), fetchImpl }),
+    { maxPerDay: config.missionsMaxPerDay, timeZone: config.timeZone, onError: (m, err) => console.error(m ? `missão "${m.titulo}" falhou:` : "agendador de missões falhou:", err instanceof Error ? err.message : err) },
+  );
   // Toda ferramenta usada fica registrada na auditoria (o que, com quais parâmetros, resultado).
   const connectors = withAudit(
     buildConnectors(config, brain, fetchImpl, skills, playbooks, [
@@ -172,9 +187,11 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       ...(config.github ? [githubConnector(config.github, fetchImpl)] : []),
       auditConnector(audit),
       panelsConnector(skills.panels!),
+      missionsConnector(missionStore, runner),
     ]),
     audit,
   );
+  allConnectors = connectors;
 
   // Cérebro no Obsidian: clona/sincroniza em segundo plano para não travar a subida.
   if (config.brainGit) {
@@ -242,6 +259,8 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
   });
 
   const chatKeyMissing = config.usesOpenAI && !config.llmApiKey;
+  // Sem chave da IA as missões não têm como rodar: o agendador fica parado.
+  if (!chatKeyMissing && !noScheduler) runner.start();
   const missingKey = (c: Context) => c.json({ error: "Falta configurar a OPENAI_API_KEY no Easypanel." }, 503);
 
   // Teste de conexão com o CRM: guardado por 1 minuto e uma chamada por vez.
@@ -426,6 +445,76 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       return c.json({ error: "Não consegui montar o painel." }, 500);
     }
   });
+  // Jarvis gerente: missões delegadas e relatórios.
+  const missionView = (m: Mission) => ({ ...m, quando: describeFrequency(m.frequencia) });
+  app.get("/api/missoes", async (c) => {
+    const list = await missionStore.list();
+    return c.json({
+      missoes: list.map(missionView),
+      pacote: MANAGER_PACK.map((p) => ({ chave: p.chave, titulo: p.titulo, quando: describeFrequency(p.frequencia), ativa: list.some((m) => m.chave === p.chave) })),
+      executando: runner.busy,
+      ia_configurada: !chatKeyMissing,
+      limite_diario: config.missionsMaxPerDay,
+    });
+  });
+  // Ativa as missões do pacote do gerente que ainda não existem (ou só as escolhidas).
+  app.post("/api/missoes/pacote", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { chaves?: unknown };
+    const wanted = Array.isArray(body.chaves) ? new Set(body.chaves.map(String)) : null;
+    const existing = new Set((await missionStore.list()).map((m) => m.chave).filter(Boolean));
+    const created: Mission[] = [];
+    const erros: string[] = [];
+    for (const p of MANAGER_PACK) {
+      if (existing.has(p.chave) || (wanted && !wanted.has(p.chave))) continue;
+      try {
+        created.push(await missionStore.create(p));
+      } catch (err) {
+        // Duplicada por um toque duplo, ou limite de missões: segue com as outras.
+        if (!(err instanceof MissionError)) throw err;
+        if (!/já existe/.test(err.message)) erros.push(`${p.titulo}: ${err.message}`);
+      }
+    }
+    return c.json({ criadas: created.map(missionView), erros });
+  });
+  app.post("/api/missoes/:id/executar", async (c) => {
+    const id = c.req.param("id");
+    if (!isMissionId(id) || !(await missionStore.get(id))) return c.json({ error: "Missão não encontrada." }, 404);
+    if (chatKeyMissing) return missingKey(c);
+    if (!(await runner.runNow(id))) return c.json({ error: `Limite de ${config.missionsMaxPerDay} execuções de missão por hoje atingido.` }, 429);
+    return c.json({ executando: true });
+  });
+  app.post("/api/missoes/:id/ativa", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { ativa?: unknown };
+    if (!isMissionId(id)) return c.json({ error: "Missão não encontrada." }, 404);
+    // Tocar em Ativar no HUD é a confirmação humana de uma missão criada pela conversa.
+    const m = await missionStore.setActive(id, body.ativa === true);
+    return m ? c.json({ missao: missionView(m) }) : c.json({ error: "Missão não encontrada." }, 404);
+  });
+  app.delete("/api/missoes/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!isMissionId(id) || !(await missionStore.remove(id))) return c.json({ error: "Missão não encontrada." }, 404);
+    return c.json({ ok: true });
+  });
+  app.get("/api/relatorios", async (c) => c.json({ relatorios: await missionStore.reports(Math.min(50, Number(c.req.query("limite")) || 20)) }));
+  app.get("/api/relatorios/avisos", async (c) => {
+    const raw = c.req.query("desde") ?? "";
+    const since = Number.isFinite(Date.parse(raw)) ? new Date(raw) : new Date(Date.now() - 12 * 3600_000);
+    const list = await missionStore.since(since);
+    // Cursor = o relatório mais novo entregue (não a hora do servidor): um relatório
+    // que ainda estava sendo gravado durante a consulta chega na próxima.
+    return c.json({ relatorios: list, agora: list.length ? list[list.length - 1]!.criado_em : since.toISOString() });
+  });
+  app.get("/api/relatorios/:id", async (c) => {
+    const id = c.req.param("id");
+    const r = isReportId(id) ? await missionStore.report(id) : null;
+    return r ? c.json(r) : c.json({ error: "Relatório não encontrado." }, 404);
+  });
+  app.post("/api/relatorios/:id/lido", async (c) => {
+    const id = c.req.param("id");
+    return isReportId(id) && (await missionStore.markRead(id)) ? c.json({ ok: true }) : c.json({ error: "Relatório não encontrado." }, 404);
+  });
+
   // Painéis do HUD (sensores de clima e radar de notícias), com os mesmos serviços das habilidades.
   app.get("/api/clima", async (c) => {
     try {

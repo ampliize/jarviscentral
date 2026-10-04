@@ -63,7 +63,7 @@ test("API exige o token de acesso", async () => {
   const ok = await app.request("/api/connectors", { headers: { Authorization: `Bearer ${TOKEN}` } });
   assert.equal(ok.status, 200);
   const ids = ((await ok.json()) as Array<{ id: string }>).map((c) => c.id);
-  assert.deepEqual(ids, ["ampliize", "bateponto", "memoria", "habilidades", "skills", "operacao", "guardiao", "sites", "estudio", "auditoria", "paineis"]);
+  assert.deepEqual(ids, ["ampliize", "bateponto", "memoria", "habilidades", "skills", "operacao", "guardiao", "sites", "estudio", "auditoria", "paineis", "missoes"]);
 });
 
 test("chat: o modelo chama a ferramenta do CRM e responde com o dado", async () => {

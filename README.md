@@ -142,6 +142,31 @@ No Mac é igual (Git já vem com o Xcode Command Line Tools).
 | Ligar/desligar voz e música | ícones do canto inferior direito (ou GERENCIAR HUD) |
 | Voz, modo palmas, configuração, nova conversa, sair | **GERENCIAR HUD** |
 
+### Jarvis gerente: missões delegadas e relatórios
+
+Você delega uma responsabilidade e o Jarvis executa sozinho no horário, sem precisar ser cobrado. No fim ele entrega um relatório com:
+- resumo e achados;
+- **ordens para o time** (pessoas e agentes, com prazo);
+- **o que precisa de você**;
+- os entregáveis (calendário de posts, roteiros, mensagens em rascunho).
+
+| Como | O que acontece |
+|---|---|
+| "a partir de agora, toda segunda às 7h você planeja os posts dos clientes" | O Jarvis prepara a missão e mostra o card com **Ativar**. Missão criada pela conversa só roda depois do seu toque (proteção contra instrução vinda dos dados). |
+| GERENCIAR HUD → **Missões** → **Ativar pacote do gerente** | Cinco missões prontas, ativadas pelo seu toque: rotina do gerente (dias úteis 07:45), plano de conteúdo da semana (segunda 07:00), founder-led growth do Davy (domingo 18:00), projeto agentes de IA e funil (quarta 09:00) e revisão da semana (sexta 17:00) |
+| "minhas missões" · "relatórios" | Lista com próxima execução, resultado da última e botões Executar, Pausar e Abrir |
+| Briefing da manhã | Card **Relatórios novos**, com o que pede a sua decisão |
+
+**Como uma missão é executada:**
+- Em missão o Jarvis só **lê**: CRM, cérebro, notícias e rascunhos dos agentes.
+- Ficam de fora tudo o que cria, anota, publica ou consulta o GitHub.
+- Ele escreve o relatório no HUD e no Obsidian, em `relatorios/AAAA-MM/`.
+- Nada é enviado a cliente. As ordens para os agentes (SDR, Closer, Conteúdo) ficam no relatório e o time executa no CRM, onde o agente gera o rascunho e uma pessoa envia.
+
+**Manual da operação:** o Jarvis lê `_jarvis/operacao.md` (quem faz o quê, ritmo da semana, conteúdo dos clientes, regras) e `_jarvis/plano-agentes.md` (o roadmap dos agentes e do funil). Edite essas notas para mudar como ele gerencia.
+
+**Custo:** cada execução usa a IA (OpenAI). O teto diário é `JARVIS_MISSOES_MAX_DIA`, com padrão de 12. Ele fica gravado e vale mesmo depois de reiniciar o servidor. Missão vencida sem orçamento roda no dia seguinte, às 06:00.
+
 ### Painéis do CRM: agenda, financeiro e comercial
 
 Tudo vem do CRM da Ampliize (recursos `agenda`, `finance_history` e `sales_history` da integration-api). O Jarvis não guarda nem estima número.
@@ -389,6 +414,8 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET | `/api/conversations/:id` | Mensagens de uma conversa |
 | GET | `/api/connectors` | Projetos conectados e ferramentas |
 | GET | `/api/status` | Modelo, voz, estado do cérebro (Obsidian) e `servicos` (motor, CRM, fala, estúdio, GitHub, sistemas) |
+| GET · POST · DELETE | `/api/missoes`, `/api/missoes/pacote`, `/api/missoes/:id/executar`, `/api/missoes/:id/ativa`, `/api/missoes/:id` | Missões delegadas (listar, ativar o pacote, executar agora, ativar ou pausar, excluir) |
+| GET · POST | `/api/relatorios`, `/api/relatorios/avisos?desde=`, `/api/relatorios/:id`, `/api/relatorios/:id/lido` | Relatórios das missões |
 | GET | `/api/painel/:tipo` | Painel do HUD (`agenda`, `financeiro` ou `comercial`), lido do CRM (cache de 60 s) |
 | GET | `/api/clima` | Clima agora, hoje e amanhã na cidade do `JARVIS_CITY` |
 | GET | `/api/noticias` | Manchetes recentes (`?tema=`, até 80 caracteres) |

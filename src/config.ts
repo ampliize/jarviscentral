@@ -50,6 +50,8 @@ export interface Config {
   ownerName: string;
   /** Cidade padrão do clima (JARVIS_CITY). */
   city: string;
+  /** Máximo de missões executadas por dia (JARVIS_MISSOES_MAX_DIA, padrão 12). */
+  missionsMaxPerDay: number;
   corsOrigins: string[];
   ampliize: { url: string; key: string } | null;
   projects: ProjectConfig[];
@@ -147,6 +149,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     timeZone: env.TZ_JARVIS || "America/Maceio",
     ownerName: env.JARVIS_OWNER_NAME?.trim() || "Davy",
     city: env.JARVIS_CITY?.trim() || "Aracaju",
+    // Teto de missões executadas por dia (custo da IA sob controle).
+    missionsMaxPerDay: Math.min(50, Math.max(1, Math.round(Number(env.JARVIS_MISSOES_MAX_DIA) || 12))),
     corsOrigins: (env.JARVIS_CORS_ORIGINS ?? "")
       .split(",")
       .map((s) => s.trim())
