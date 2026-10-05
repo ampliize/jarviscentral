@@ -174,6 +174,7 @@ O envio e o recebimento ficam no CRM (Evolution API, sem n8n; guia em `docs/agen
 - a rotina do gerente transforma cada lead esperando em ordem de responder no mesmo dia, com o próximo passo para fechar;
 - a missão de agentes e funil mede a taxa de resposta;
 - no chat: "quem respondeu no WhatsApp?" usa `ampliize_whatsapp_conversas`.
+- reunião marcada pelo atendente de IA do WhatsApp: "quem marcou reunião?" / "me prepara para a reunião" usa `ampliize_reunioes_agendadas` (com o dossiê do lead), e o aviso chega no seu WhatsApp pelo fluxo de avisos.
 
 O texto do lead é tratado como dado, nunca como instrução. O envio é sempre feito por uma pessoa na Fila SDR do CRM.
 
@@ -184,7 +185,7 @@ Você conversa com o Jarvis pelo WhatsApp: texto ou áudio, delegar missões e r
 | Fluxo no n8n | O que faz |
 |---|---|
 | **Jarvis · WhatsApp (entrada)** | Instância `jarvis` da Evolution → webhook. Só o seu número é atendido e a resposta sempre volta para ele. Áudio vira texto (Whisper). `ATIVAR m_xxxxxxxxxxxx` ativa uma missão sem passar pela IA. `nova conversa` zera o contexto. O resto vai para `/api/chat`. |
-| **Jarvis · WhatsApp (avisos)** | A cada 5 minutos, das 7h às 22h: relatórios das missões (`/api/relatorios/avisos`) e leads que responderam no WhatsApp da Ampliize (`/api/whatsapp/avisos`). |
+| **Jarvis · WhatsApp (avisos)** | A cada 5 minutos, das 7h às 22h: relatórios das missões (`/api/relatorios/avisos`) leads que responderam no WhatsApp da Ampliize (`/api/whatsapp/avisos`) e reuniões marcadas pelo atendente de IA, com o dossiê (`/api/reunioes/avisos`). |
 
 Para ligar:
 1. Evolution: crie a instância `jarvis`, conecte o número do Jarvis pelo QR e aponte o webhook para a URL de produção do fluxo de entrada (evento `MESSAGES_UPSERT`, Base64 ligado).
@@ -442,6 +443,7 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET · POST · DELETE | `/api/missoes`, `/api/missoes/pacote`, `/api/missoes/:id/executar`, `/api/missoes/:id/ativa`, `/api/missoes/:id` | Missões delegadas (listar, ativar o pacote, executar agora, ativar ou pausar, excluir) |
 | GET · POST | `/api/relatorios`, `/api/relatorios/avisos?desde=`, `/api/relatorios/:id`, `/api/relatorios/:id/lido` | Relatórios das missões |
 | GET | `/api/whatsapp/avisos?desde=` | Leads que responderam no WhatsApp e esperam resposta nossa (do CRM, cache de 30 s) |
+| GET | `/api/reunioes/avisos?desde=` | Reuniões marcadas pelo atendente de IA desde o cursor, com o dossiê (do CRM) |
 | GET | `/api/painel/:tipo` | Painel do HUD (`agenda`, `financeiro` ou `comercial`), lido do CRM (cache de 60 s) |
 | GET | `/api/clima` | Clima agora, hoje e amanhã na cidade do `JARVIS_CITY` |
 | GET | `/api/noticias` | Manchetes recentes (`?tema=`, até 80 caracteres) |

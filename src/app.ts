@@ -23,6 +23,13 @@ interface WhatsappConversa {
   texto_do_lead: string | null;
   lead_escreveu_em: string | null;
 }
+/** Reunião marcada pelo atendente de IA (recurso agent_meetings do CRM, sem telefone nem e-mail). */
+interface AgentMeeting {
+  lead_id: number;
+  nome: string | null;
+  marcada_em: string | null;
+  [campo: string]: unknown;
+}
 import { buildOperation, gatherOperation, loadBriefing } from "./briefing.js";
 import { AlertBook } from "./skills/alerts.js";
 import { operationConnector } from "./skills/operation.js";
@@ -537,6 +544,25 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       conversas: novas.map((x) => ({ id: x.id, nome: x.nome, texto: x.texto_do_lead, quando: x.lead_escreveu_em })),
       agora,
     });
+  });
+  // Reunião marcada pelo atendente de IA: o fluxo de avisos do n8n manda o dossiê no WhatsApp do dono.
+  app.get("/api/reunioes/avisos", async (c) => {
+    const raw = c.req.query("desde") ?? "";
+    const since = Number.isFinite(Date.parse(raw)) ? raw : new Date(Date.now() - 12 * 3600_000).toISOString();
+    if (!config.ampliize) return c.json({ reunioes: [], agora: since });
+    let reunioes: AgentMeeting[];
+    try {
+      const data = (await callResource({ ...config.ampliize, fetchImpl, timeoutMs: 8_000 }, "agent_meetings", { desde: since })) as { reunioes?: unknown };
+      reunioes = Array.isArray(data?.reunioes) ? (data.reunioes as AgentMeeting[]) : [];
+    } catch {
+      return c.json({ reunioes: [], agora: since });
+    }
+    // Instantes comparados aqui (o CRM devolve microssegundos; o filtro de lá é por milissegundo).
+    const at = (iso: string | null) => (iso ? Date.parse(iso) : NaN);
+    const sinceMs = Date.parse(since);
+    const novas = reunioes.filter((r) => at(r.marcada_em) > sinceMs);
+    const agora = novas.reduce((max, r) => (at(r.marcada_em) > Date.parse(max) ? r.marcada_em! : max), since);
+    return c.json({ reunioes: novas, agora });
   });
   app.get("/api/relatorios/:id", async (c) => {
     const id = c.req.param("id");

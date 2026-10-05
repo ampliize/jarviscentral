@@ -258,3 +258,36 @@ test("whatsapp: avisa só lead esperando resposta nossa, uma vez, sem telefone",
   assert.equal(Date.parse(again.agora), Date.parse(first.agora));
   assert.equal(crmCalls, 1);
 });
+
+test("reuniões: avisa a reunião marcada pelo atendente uma vez, com o dossiê", async () => {
+  const dataDir = await tmp();
+  const reunioes = [
+    { lead_id: 3, nome: "Clínica Sorriso", marcada_em: "2026-10-05T12:00:00.123456+00:00", inicio: "2026-10-06T13:00:00Z", dossie: { resumo: "Quer mais pacientes" } },
+    { lead_id: 4, nome: "Antiga", marcada_em: "2026-10-04T10:00:00+00:00", inicio: "2026-10-05T13:00:00Z", dossie: null },
+  ];
+  const pedidos: unknown[] = [];
+  const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith("https://crm.test")) {
+      const { resource, params } = JSON.parse(String(init!.body));
+      assert.equal(resource, "agent_meetings");
+      pedidos.push(params);
+      return json({ data: { desde: params.desde, reunioes } });
+    }
+    return json({}, 404);
+  }) as typeof fetch;
+  const app = await createApp({
+    config: loadConfig({ JARVIS_ACCESS_TOKEN: TOKEN, DATA_DIR: dataDir, OPENAI_API_KEY: "sk-test", AMPLIIZE_API_URL: "https://crm.test/api", AMPLIIZE_API_KEY: "amp_" + "a".repeat(48) }),
+    fetchImpl,
+    noScheduler: true,
+  });
+  assert.equal((await app.request("/api/reunioes/avisos")).status, 401);
+  const first = (await (await app.request("/api/reunioes/avisos?desde=2026-10-05T00:00:00.000Z", { headers: auth })).json()) as any;
+  assert.deepEqual(first.reunioes.map((r: any) => r.lead_id), [3]);
+  assert.equal(first.reunioes[0].dossie.resumo, "Quer mais pacientes");
+  assert.equal(first.agora, "2026-10-05T12:00:00.123456+00:00");
+  assert.deepEqual(pedidos[0], { desde: "2026-10-05T00:00:00.000Z" });
+  // Com o cursor (microssegundos), a mesma reunião não volta.
+  const again = (await (await app.request(`/api/reunioes/avisos?desde=${encodeURIComponent(first.agora)}`, { headers: auth })).json()) as any;
+  assert.deepEqual(again.reunioes, []);
+  assert.equal(again.agora, first.agora);
+});
