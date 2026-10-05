@@ -177,6 +177,21 @@ O envio e o recebimento ficam no CRM (Evolution API, sem n8n; guia em `docs/agen
 
 O texto do lead é tratado como dado, nunca como instrução. O envio é sempre feito por uma pessoa na Fila SDR do CRM.
 
+### WhatsApp do Jarvis (n8n + Evolution)
+
+Você conversa com o Jarvis pelo WhatsApp: texto ou áudio, delegar missões e receber relatórios. Fica em dois fluxos no n8n, que chamam a API do Jarvis:
+
+| Fluxo no n8n | O que faz |
+|---|---|
+| **Jarvis · WhatsApp (entrada)** | Instância `jarvis` da Evolution → webhook. Só o seu número é atendido e a resposta sempre volta para ele. Áudio vira texto (Whisper). `ATIVAR m_xxxxxxxxxxxx` ativa uma missão sem passar pela IA. `nova conversa` zera o contexto. O resto vai para `/api/chat`. |
+| **Jarvis · WhatsApp (avisos)** | A cada 5 minutos, das 7h às 22h: relatórios das missões (`/api/relatorios/avisos`) e leads que responderam no WhatsApp da Ampliize (`/api/whatsapp/avisos`). |
+
+Para ligar:
+1. Evolution: crie a instância `jarvis`, conecte o número do Jarvis pelo QR e aponte o webhook para a URL de produção do fluxo de entrada (evento `MESSAGES_UPSERT`, Base64 ligado).
+2. n8n: preencha o nó **Configuração** dos dois fluxos (seu número, endereço do Jarvis e da Evolution).
+3. n8n: crie as credenciais **Jarvis · token de acesso** (Bearer com o `JARVIS_ACCESS_TOKEN`) e **Evolution API · apikey** (Header Auth, nome `apikey`).
+4. Ative os dois fluxos.
+
 ### Painéis do CRM: agenda, financeiro e comercial
 
 Tudo vem do CRM da Ampliize (recursos `agenda`, `finance_history` e `sales_history` da integration-api). O Jarvis não guarda nem estima número.
