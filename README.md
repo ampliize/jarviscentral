@@ -184,14 +184,52 @@ Você conversa com o Jarvis pelo WhatsApp: texto ou áudio, delegar missões e r
 
 | Fluxo no n8n | O que faz |
 |---|---|
-| **Jarvis · WhatsApp (entrada)** | Instância `jarvis` da Evolution → webhook. Só o seu número é atendido e a resposta sempre volta para ele. Áudio vira texto (Whisper). `ATIVAR m_xxxxxxxxxxxx` ativa uma missão sem passar pela IA. `nova conversa` zera o contexto. O resto vai para `/api/chat`. |
-| **Jarvis · WhatsApp (avisos)** | A cada 5 minutos, das 7h às 22h: relatórios das missões (`/api/relatorios/avisos`) leads que responderam no WhatsApp da Ampliize (`/api/whatsapp/avisos`) e reuniões marcadas pelo atendente de IA, com o dossiê (`/api/reunioes/avisos`). |
+| **Jarvis · WhatsApp (entrada)** | Instância `jarvis` da Evolution → webhook. Só o seu número é atendido e a resposta sempre volta para ele. Áudio vira texto (Whisper). `ATIVAR m_xxxxxxxxxxxx` ativa uma missão sem passar pela IA. `APROVAR a_xxxxxxxxxxxx` e `RECUSAR a_xxxxxxxxxxxx` decidem uma proposta do agente de tráfego. `PERMITIR <permissão>` e `REVOGAR <permissão|todas>` controlam a autonomia dele. `nova conversa` zera o contexto. O resto vai para `/api/chat`. |
+| **Jarvis · WhatsApp (avisos)** | A cada 5 minutos, das 7h às 22h: relatórios das missões (`/api/relatorios/avisos`) leads que responderam no WhatsApp da Ampliize (`/api/whatsapp/avisos`) reuniões marcadas pelo atendente de IA, com o dossiê (`/api/reunioes/avisos`), e propostas do agente de tráfego esperando você ou já aplicadas (`/api/trafego/avisos`). |
 
 Para ligar:
 1. Evolution: crie a instância `jarvis`, conecte o número do Jarvis pelo QR e aponte o webhook para a URL de produção do fluxo de entrada (evento `MESSAGES_UPSERT`, Base64 ligado).
 2. n8n: preencha o nó **Configuração** dos dois fluxos (seu número, endereço do Jarvis e da Evolution).
 3. n8n: crie as credenciais **Jarvis · token de acesso** (Bearer com o `JARVIS_ACCESS_TOKEN`) e **Evolution API · apikey** (Header Auth, nome `apikey`).
 4. Ative os dois fluxos.
+
+### Agente de tráfego (Google Ads e Meta Ads)
+
+O agente lê o desempenho dos anúncios e **propõe** mudanças: criar campanha de pesquisa no Google, mudar orçamento, pausar ou ativar, adicionar palavras-chave e negativas. **Nada muda nos anúncios sem você aprovar**, no HUD (**Tráfego**) ou respondendo `APROVAR a_xxxxxxxxxxxx` no WhatsApp.
+
+- **Permissões:** você pode liberar ações para ele fazer sozinho, avisando depois. Elas valem 30 dias e você revoga quando quiser.
+
+  | Permissão (`PERMITIR …`) | O que libera |
+  |---|---|
+  | `pausar` | Pausar campanhas, grupos e anúncios (só reduz gasto). |
+  | `negativas` | Adicionar palavras negativas no Google. |
+  | `orcamento20` | Subir ou baixar o orçamento em até 20% por vez, dentro do teto. |
+  | `palavras` | Adicionar palavras-chave em grupos que já existem. |
+
+- **Teto por campanha (`TRAFEGO_ORCAMENTO_MAX_DIA`, padrão R$ 300/dia):** nenhuma proposta passa disso, nem com aprovação. Isso protege contra erro de digitação.
+- **Validade:** proposta sem decisão expira em 48 h, porque o cenário muda.
+- **Supervisão:** a IA não tem ferramenta para aprovar nem para dar permissão. Isso só existe no HUD e no fluxo do WhatsApp, que só obedece o seu número.
+- **Antes de chegar a você:** toda proposta do Google é conferida pela própria API (`validateOnly`). Criar uma campanha é atômico: ou entra inteira, ou nada. Ela nasce **pausada**, a menos que você peça.
+- **Missão "Gestor de tráfego":** está no pacote do gerente, roda em dias úteis às 08:30 e mede custo por reunião marcada, não por clique. Ela propõe no máximo 5 ajustes por dia.
+- **No Meta:** o agente lê, pausa, ativa e muda orçamento. Criar campanha no Meta exige criativo (imagem ou vídeo) e fica com o time.
+
+**Google Ads (uma vez):**
+1. Na conta administradora (MCC) do Google Ads, em **Ferramentas → Central de API**, peça o *developer token*. Ele começa em modo de teste; peça o acesso básico para usar na conta real.
+2. No Google Cloud, num projeto da Ampliize:
+   - ative a **Google Ads API**;
+   - configure a tela de consentimento OAuth;
+   - crie um **ID do cliente OAuth** do tipo *Aplicativo da Web*, com o URI de redirecionamento `https://SEU-JARVIS/oauth/google/callback`.
+3. No Easypanel, em Environment, crie:
+   - `GOOGLE_ADS_DEVELOPER_TOKEN`;
+   - `GOOGLE_ADS_CLIENT_ID` e `GOOGLE_ADS_CLIENT_SECRET`;
+   - `GOOGLE_ADS_CUSTOMER_ID`: a conta de anúncios, `123-456-7890`;
+   - `GOOGLE_ADS_LOGIN_CUSTOMER_ID`: a MCC, se a conta estiver dentro de uma;
+   - `JARVIS_PUBLIC_URL`: o endereço https do Jarvis.
+4. No HUD, abra **Tráfego → Conectar Google Ads** e entre com a conta do Google que administra os anúncios. Você não digita nenhuma chave no navegador.
+
+**Meta Ads:** no Business Manager, crie um **usuário do sistema** e dê a ele a conta de anúncios. Gere um token com `ads_management` e `ads_read`. No Easypanel, crie `META_ADS_ACCESS_TOKEN` e `META_ADS_ACCOUNT_ID`.
+
+Se as APIs mudarem de versão, ajuste `GOOGLE_ADS_API_VERSION` (padrão `v22`) e `META_API_VERSION` (padrão `v23.0`).
 
 ### Painéis do CRM: agenda, financeiro e comercial
 
@@ -443,6 +481,13 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <JARVIS_ACCESS_TOKEN>`.
 | GET · POST · DELETE | `/api/missoes`, `/api/missoes/pacote`, `/api/missoes/:id/executar`, `/api/missoes/:id/ativa`, `/api/missoes/:id` | Missões delegadas (listar, ativar o pacote, executar agora, ativar ou pausar, excluir) |
 | GET · POST | `/api/relatorios`, `/api/relatorios/avisos?desde=`, `/api/relatorios/:id`, `/api/relatorios/:id/lido` | Relatórios das missões |
 | GET | `/api/whatsapp/avisos?desde=` | Leads que responderam no WhatsApp e esperam resposta nossa (do CRM, cache de 30 s) |
+| GET | `/api/trafego` | Agente de tráfego: contas, teto, propostas pendentes e recentes, permissões |
+| GET | `/api/trafego/desempenho?plataforma=&nivel=&dias=` | Gasto, cliques, conversões e custo por conversão (campanha, grupo, conjunto, anúncio, palavras, termos) |
+| GET | `/api/trafego/avisos?desde=` | Propostas novas esperando você e as aplicadas ou recusadas pela plataforma desde o cursor |
+| GET | `/api/trafego/propostas/:id` | Uma proposta com os detalhes |
+| POST | `/api/trafego/propostas/:id/aprovar` · `/recusar` | Decisão do dono (aprovar executa na hora, uma vez só) |
+| POST/DELETE | `/api/trafego/permissoes` · `/api/trafego/permissoes/:preset` | Dar `{ preset }` ou revogar (`todas` revoga tudo) |
+| POST | `/api/trafego/google/conectar` | Link de login do Google Ads (o retorno é em `/oauth/google/callback`) |
 | GET | `/api/reunioes/avisos?desde=` | Reuniões marcadas pelo atendente de IA desde o cursor, com o dossiê (do CRM) |
 | GET | `/api/painel/:tipo` | Painel do HUD (`agenda`, `financeiro` ou `comercial`), lido do CRM (cache de 60 s) |
 | GET | `/api/clima` | Clima agora, hoje e amanhã na cidade do `JARVIS_CITY` |

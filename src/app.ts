@@ -1,4 +1,4 @@
-import { timingSafeEqual, createHash } from "node:crypto";
+import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +56,13 @@ import { CrmPanels, PANEL_KINDS, PanelError, panelsConnector, type PanelKind } f
 import { isMissionId, isReportId, MissionError, MissionRunner, MissionStore, describeFrequency, type Mission } from "./skills/missions.js";
 import { MANAGER_PACK, missionExecutor, missionsConnector } from "./skills/manager.js";
 import type { Connector } from "./connectors/types.js";
+import { ActionError, type Platform } from "./ads/actions.js";
+import { trafficConnector } from "./ads/connector.js";
+import { GoogleAds } from "./ads/google.js";
+import { MetaAds } from "./ads/meta.js";
+import { TrafficManager } from "./ads/service.js";
+import { isProposalId, TrafficError, TrafficStore } from "./ads/store.js";
+import { AdsError, type AdsClient, type StatsLevel } from "./ads/types.js";
 
 const MAX_QUESTION_CHARS = 4_000;
 const RATE_LIMIT_PER_MINUTE = 120;
@@ -78,6 +85,8 @@ export interface AppDeps {
   monitorOptions?: Omit<MonitorOptions, "fetchImpl">;
   /** Testes: Claude, imagens, rede e ffmpeg falsos para o estúdio. */
   studioOptions?: { creative?: CreativeModel | null; image?: (prompt: string, format: ImageFormat) => Promise<Buffer>; net?: NetDeps; runner?: Runner };
+  /** Testes: plataformas de anúncio falsas. */
+  adsClients?: Partial<Record<Platform, AdsClient>>;
 }
 
 /** Só links para destinos conhecidos viram botão no HUD (e "jarvis:estudio/<id>", que abre o andamento). */
@@ -89,6 +98,7 @@ export const safeLinks = (links: ToolLink[] = []) =>
       if (/^jarvis:estudio\/[a-f0-9]{24}$/.test(l.url)) return true;
       if (PANEL_LINK_RE.test(l.url)) return true;
       if (/^jarvis:missao\/m_[a-f0-9]{12}$/.test(l.url)) return true;
+      if (/^jarvis:trafego\/a_[a-f0-9]{12}$/.test(l.url)) return true;
       try {
         const u = new URL(l.url);
         return u.protocol === "https:" && LINK_HOSTS.includes(u.hostname);
@@ -147,7 +157,18 @@ async function readLimited(req: Request, max: number): Promise<ArrayBuffer | nul
   return out.buffer;
 }
 
-export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOptions, studioOptions, noScheduler }: AppDeps) {
+/** Erro do agente de tráfego → resposta HTTP clara. */
+function trafficError(c: Context, err: unknown) {
+  if (err instanceof ActionError || err instanceof TrafficError) return c.json({ error: err.message }, 409);
+  if (err instanceof AdsError) return c.json({ error: err.message }, 502);
+  console.error("tráfego falhou:", err);
+  return c.json({ error: "Falha no agente de tráfego." }, 500);
+}
+
+const OAUTH_PAGE = (titulo: string, texto: string) =>
+  `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${titulo}</title><body style="font-family:system-ui,sans-serif;background:#0b1116;color:#e2e9ef;display:grid;place-items:center;min-height:100vh;margin:0"><main style="max-width:420px;padding:24px;text-align:center"><h1 style="font-size:22px">${titulo}</h1><p>${texto}</p></main></body></html>`;
+
+export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOptions, studioOptions, noScheduler, adsClients }: AppDeps) {
   const brain = new Brain(config.dataDir);
   const store = new ConversationStore(config.dataDir);
   await Promise.all([brain.init(), store.init()]);
@@ -165,6 +186,13 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     missions: new MissionStore(config.dataDir, config.timeZone),
   };
   const audit = new AuditLog(config.dataDir);
+  // Agente de tráfego: propõe; o dono aprova (HUD/WhatsApp) ou deu permissão.
+  const google = config.ads.google ? new GoogleAds(config.ads.google, config.dataDir, fetchImpl) : null;
+  const traffic = new TrafficManager(
+    new TrafficStore(config.dataDir),
+    adsClients ?? { ...(google ? { google } : {}), ...(config.ads.meta ? { meta: new MetaAds(config.ads.meta, fetchImpl) } : {}) },
+    { limits: { maxDailyBudget: config.ads.maxDailyBudget }, timeZone: config.timeZone, grantDays: config.ads.grantDays },
+  );
   const engine = studioOptions && "creative" in studioOptions ? studioOptions.creative ?? null : studioEngine(config);
   const studio = new Studio({
     config,
@@ -204,6 +232,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       auditConnector(audit),
       panelsConnector(skills.panels!),
       missionsConnector(missionStore, runner),
+      trafficConnector(traffic),
     ]),
     audit,
   );
@@ -241,6 +270,27 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
   }
 
   app.get("/health", (c) => c.json({ ok: true, conectores: connectors.map((k) => k.id) }));
+
+  // Login do Google Ads (botão "Conectar Google Ads" no HUD). Rota pública: só
+  // aceita um "state" que o próprio Jarvis gerou há menos de 10 min, uma vez.
+  const oauthStates = new Map<string, { until: number; redirect: string }>();
+  app.get("/oauth/google/callback", async (c) => {
+    const state = c.req.query("state") ?? "";
+    const saved = oauthStates.get(state);
+    oauthStates.delete(state);
+    if (!google || !saved || saved.until < Date.now()) {
+      return c.html(OAUTH_PAGE("Link vencido", "Volte ao Jarvis e toque em Conectar Google Ads de novo."), 400);
+    }
+    const code = c.req.query("code") ?? "";
+    if (!code) return c.html(OAUTH_PAGE("Conexão cancelada", "O Google não autorizou o acesso. Você pode tentar de novo pelo Jarvis."), 400);
+    try {
+      await google.exchangeCode(code, saved.redirect);
+      return c.html(OAUTH_PAGE("Google Ads conectado", "Pode fechar esta aba e voltar ao Jarvis."));
+    } catch (err) {
+      console.error("google ads: conexão falhou:", err instanceof Error ? err.message : err);
+      return c.html(OAUTH_PAGE("Não consegui conectar", "Confira as variáveis do Google Ads no Easypanel e tente de novo."), 502);
+    }
+  });
 
   // Autenticação simples de dono único: Bearer JARVIS_ACCESS_TOKEN.
   // Dois limites por IP: tentativas de senha errada (contra força bruta) e uso
@@ -568,6 +618,83 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     const agora = prontas.length ? prontas[prontas.length - 1]!.marcada_em! : since;
     return c.json({ reunioes: prontas, agora });
   });
+  // ================= agente de tráfego =================
+  app.get("/api/trafego", async (c) => {
+    try {
+      return c.json(await traffic.overview());
+    } catch (err) {
+      return trafficError(c, err);
+    }
+  });
+  app.get("/api/trafego/desempenho", async (c) => {
+    const plataforma = c.req.query("plataforma") === "meta" ? "meta" : "google";
+    const nivel = (c.req.query("nivel") ?? "campanha") as StatsLevel;
+    if (!["campanha", "grupo", "conjunto", "anuncio", "palavras", "termos"].includes(nivel)) return c.json({ error: "Nível inválido." }, 400);
+    try {
+      return c.json({ plataforma, nivel, linhas: await traffic.stats(plataforma, nivel, Number(c.req.query("dias")) || 7) });
+    } catch (err) {
+      return trafficError(c, err);
+    }
+  });
+  app.get("/api/trafego/avisos", async (c) => {
+    const raw = c.req.query("desde") ?? "";
+    const since = Number.isFinite(Date.parse(raw)) ? new Date(raw) : new Date(Date.now() - 12 * 3600_000);
+    return c.json(await traffic.notices(since));
+  });
+  app.get("/api/trafego/propostas/:id", async (c) => {
+    const id = c.req.param("id");
+    const p = isProposalId(id) ? await traffic.proposal(id) : null;
+    return p ? c.json({ proposta: p }) : c.json({ error: "Proposta não encontrada." }, 404);
+  });
+  // Aprovar e recusar: só o dono (HUD ou o fluxo do WhatsApp com o número dele).
+  app.post("/api/trafego/propostas/:id/aprovar", async (c) => {
+    const id = c.req.param("id");
+    if (!isProposalId(id)) return c.json({ error: "Proposta não encontrada." }, 404);
+    try {
+      return c.json({ proposta: await traffic.approve(id) });
+    } catch (err) {
+      return trafficError(c, err);
+    }
+  });
+  app.post("/api/trafego/propostas/:id/recusar", async (c) => {
+    const id = c.req.param("id");
+    if (!isProposalId(id)) return c.json({ error: "Proposta não encontrada." }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { motivo?: unknown };
+    try {
+      return c.json({ proposta: await traffic.reject(id, typeof body.motivo === "string" ? body.motivo : "") });
+    } catch (err) {
+      return trafficError(c, err);
+    }
+  });
+  app.post("/api/trafego/permissoes", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { preset?: unknown; dias?: unknown };
+    try {
+      return c.json({ permissao: await traffic.grant(String(body.preset ?? ""), typeof body.dias === "number" ? body.dias : undefined) });
+    } catch (err) {
+      return trafficError(c, err);
+    }
+  });
+  app.delete("/api/trafego/permissoes/:ref", async (c) => {
+    const ref = c.req.param("ref");
+    if (!/^(p_[a-f0-9]{12}|[a-z0-9]{3,20})$/.test(ref)) return c.json({ error: "Permissão não encontrada." }, 404);
+    return (await traffic.revoke(ref)) ? c.json({ ok: true }) : c.json({ error: "Permissão não encontrada." }, 404);
+  });
+  app.post("/api/trafego/google/conectar", async (c) => {
+    if (!google) return c.json({ error: "Faltam as variáveis do Google Ads no Easypanel (GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_CUSTOMER_ID)." }, 503);
+    const redirect = `${origin}/oauth/google/callback`;
+    if (!/^https:\/\//.test(redirect)) return c.json({ error: "O Jarvis precisa estar em https (defina JARVIS_PUBLIC_URL)." }, 409);
+    for (const [k, v] of oauthStates) if (v.until < Date.now()) oauthStates.delete(k);
+    if (oauthStates.size > 20) return c.json({ error: "Muitas tentativas de conexão. Aguarde alguns minutos." }, 429);
+    const state = randomBytes(24).toString("hex");
+    oauthStates.set(state, { until: Date.now() + 10 * 60_000, redirect });
+    return c.json({ url: google.authUrl(state, redirect), redirect });
+  });
+  app.post("/api/trafego/google/desconectar", async (c) => {
+    if (!google) return c.json({ ok: true });
+    await google.disconnect();
+    return c.json({ ok: true });
+  });
+
   app.get("/api/relatorios/:id", async (c) => {
     const id = c.req.param("id");
     const r = isReportId(id) ? await missionStore.report(id) : null;
