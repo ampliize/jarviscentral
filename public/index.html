@@ -434,6 +434,7 @@
       <button class="btn" type="button" id="fontesBtn">Fontes de dados</button>
       <button class="btn" type="button" id="missoesBtn">Missões</button>
       <button class="btn" type="button" id="relatoriosBtn">Relatórios</button>
+      <button class="btn" type="button" id="trafegoBtn">Tráfego</button>
       <button class="btn" type="button" id="studioBtn">Sites (estúdio)</button>
       <input type="file" id="studioVideo" accept="video/mp4,video/webm,video/quicktime" hidden>
       <button class="btn" type="button" id="sair">Sair</button>
@@ -1624,8 +1625,9 @@
       sessionStorage.setItem('jarvis_conversation', conversationId);
       const tools = (data.tools || []).map((t) => t.name.replace(/^ampliize_|^memoria_/, '') + (t.ok ? '' : ' (falhou)'));
       // Links das ferramentas (ex.: "Criar no Lovable") viram botões; só destinos conhecidos.
-      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)) || /^jarvis:estudio\/[a-f0-9]{24}$/.test(String(l.url)) || PANEL_LINK.test(String(l.url)) || MISSION_LINK.test(String(l.url)));
+      const links = (data.links || []).filter((l) => /^https:\/\/(lovable\.dev|github\.com)\//.test(String(l.url)) || /^jarvis:estudio\/[a-f0-9]{24}$/.test(String(l.url)) || PANEL_LINK.test(String(l.url)) || MISSION_LINK.test(String(l.url)) || TRAFFIC_LINK.test(String(l.url)));
       const missionLink = links.map((l) => MISSION_LINK.exec(l.url)).find(Boolean);
+      const trafficLink = links.map((l) => TRAFFIC_LINK.exec(l.url)).find(Boolean);
       const panelLink = links.map((l) => PANEL_LINK.exec(l.url)).find(Boolean);
       // Produção de site começou: acompanha em segundo plano.
       for (const l of links) { const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url); if (m) watchStudio(m[1]); }
@@ -1637,8 +1639,8 @@
         botoes: links.map((l) => ({
           texto: l.rotulo,
           fn: () => {
-            const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url), pm = PANEL_LINK.exec(l.url), mm = MISSION_LINK.exec(l.url);
-            if (m) showStudio(m[1]); else if (pm) openPanel(pm[1], { speak: false }); else if (mm) confirmMission(mm[1]); else window.open(l.url, '_blank', 'noopener,noreferrer');
+            const m = /^jarvis:estudio\/([a-f0-9]{24})$/.exec(l.url), pm = PANEL_LINK.exec(l.url), mm = MISSION_LINK.exec(l.url), tm = TRAFFIC_LINK.exec(l.url);
+            if (m) showStudio(m[1]); else if (pm) openPanel(pm[1], { speak: false }); else if (mm) confirmMission(mm[1]); else if (tm) openProposal(tm[1]); else window.open(l.url, '_blank', 'noopener,noreferrer');
           },
         })),
       });
@@ -1647,6 +1649,8 @@
       if (panelLink) openPanel(panelLink[1], { speak: false });
       // Missão nova pela conversa: card de confirmação (só roda depois do toque em Ativar).
       if (missionLink) confirmMission(missionLink[1]);
+      // Proposta de tráfego pela conversa: card com Aprovar/Recusar.
+      if (trafficLink) openProposal(trafficLink[1]);
       if (await say(data.answer, { force: spoken })) subtitle('');
     } catch (err) {
       showError(err.message || 'Sem conexão com o servidor.');
@@ -1845,6 +1849,135 @@
       }
     } catch {} finally { checkingWhatsapp = false; }
   }
+  // ================= agente de tráfego (Google Ads e Meta Ads) =================
+  // O agente propõe; nada muda nos anúncios sem o toque em Aprovar (ou permissão dada aqui).
+  const TRAFFIC_LINK = /^jarvis:trafego\/(a_[a-f0-9]{12})$/;
+  const PLAT = { google: 'Google Ads', meta: 'Meta Ads' };
+  const STATUS_TXT = { pendente: 'esperando você', executando: 'aplicando', executada: 'aplicada', falhou: 'falhou', recusada: 'recusada', expirada: 'expirou' };
+  const reais = (n) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const jsonPost = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  function proposalCard(p) {
+    const pend = p.status === 'pendente';
+    const auto = p.decidida_por && p.decidida_por.startsWith('permissao:');
+    return {
+      id: 'trafego-' + p.id, rotulo: 'TRÁFEGO · ' + (PLAT[p.plataforma] || p.plataforma).toUpperCase(),
+      titulo: p.resumo,
+      destaque: { valor: pend ? '?' : p.status === 'executada' ? '✓' : '!', legenda: STATUS_TXT[p.status] || p.status },
+      texto: 'Motivo: ' + p.motivo,
+      itens: [
+        ...(p.detalhes || []).map((d) => ({ titulo: d })),
+        ...(pend && p.aumento_dia > 0 ? [{ titulo: 'Pode aumentar o gasto em até ' + reais(p.aumento_dia) + ' por dia', alerta: true }] : []),
+        ...(p.resultado ? [{ titulo: 'Resultado: ' + p.resultado, alerta: p.status === 'falhou' }] : []),
+        ...(auto ? [{ titulo: 'Aplicada sem perguntar, pela permissão que você deu.' }] : []),
+        ...(p.motivo_recusa ? [{ titulo: 'Recusada: ' + p.motivo_recusa }] : []),
+      ],
+      botoes: pend ? [
+        { texto: 'Aprovar', fn: () => decideProposal(p.id, true) },
+        { texto: 'Recusar', fn: () => decideProposal(p.id, false) },
+      ] : [],
+      rodape: pend ? 'nada muda nos anúncios até você aprovar · no WhatsApp: APROVAR ' + p.id + ' · expira ' + whenTxt(p.expira_em) : (STATUS_TXT[p.status] || p.status) + ' · ' + whenTxt(p.atualizada_em),
+    };
+  }
+  async function openProposal(id) {
+    try {
+      const r = await api('/api/trafego/propostas/' + id);
+      const d = await r.json(); if (!r.ok) throw new Error(d.error);
+      showCard(proposalCard(d.proposta));
+    } catch (err) { showError(err.message || 'Não consegui abrir a proposta.'); }
+  }
+  async function decideProposal(id, ok) {
+    try {
+      const r = await jsonPost('/api/trafego/propostas/' + id + (ok ? '/aprovar' : '/recusar'), {});
+      const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error);
+      showCard(proposalCard(d.proposta));
+      const st = d.proposta.status;
+      subtitle(st === 'executada' ? 'Feito. ' + (d.proposta.resultado || '') : st === 'falhou' ? 'A plataforma recusou: ' + (d.proposta.resultado || '') : 'Proposta recusada.', 6000);
+    } catch (err) { showError(err.message || 'Não consegui decidir.'); }
+  }
+  function offerGrant(p) {
+    showCard({
+      id: 'permitir-' + p.preset, rotulo: 'TRÁFEGO · PERMISSÃO', titulo: p.titulo,
+      texto: p.explicacao + ' Eu aplico sozinho e te aviso depois, no HUD e no WhatsApp. Vale por 30 dias e você revoga quando quiser.',
+      botoes: [
+        { texto: 'Permitir por 30 dias', fn: async () => {
+          try {
+            const r = await jsonPost('/api/trafego/permissoes', { preset: p.preset });
+            const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error);
+            subtitle('Permissão dada: ' + p.titulo + '.', 4000);
+            showTraffic();
+          } catch (err) { showError(err.message || 'Não consegui dar a permissão.'); }
+        } },
+        { texto: 'Cancelar', fn: showTraffic },
+      ],
+    });
+  }
+  async function revokeGrant(ref, label) {
+    try {
+      const r = await api('/api/trafego/permissoes/' + ref, { method: 'DELETE' });
+      const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error);
+      subtitle('Permissão revogada: ' + label + '.', 4000);
+      showTraffic();
+    } catch (err) { showError(err.message || 'Não consegui revogar.'); }
+  }
+  async function connectGoogle() {
+    try {
+      const r = await jsonPost('/api/trafego/google/conectar', {});
+      const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error);
+      window.open(d.url, '_blank', 'noopener');
+      subtitle('Entre com a conta do Google Ads na aba que abriu. Depois volte aqui.', 8000);
+    } catch (err) { showError(err.message || 'Não consegui conectar o Google Ads.'); }
+  }
+  async function showTraffic() {
+    let d;
+    try { const r = await api('/api/trafego'); d = await r.json(); if (!r.ok) throw new Error(d.error); } catch (err) { return showError(err.message || 'Não consegui abrir o tráfego.'); }
+    const plat = (k) => { const x = d.plataformas[k] || {}; return PLAT[k] + ': ' + (!x.configurado ? 'falta configurar no Easypanel' : x.conectado ? 'conectado' + (x.conta ? ' (' + x.conta + ')' : '') : 'falta conectar'); };
+    const itens = [
+      ...d.pendentes.map((p) => ({
+        titulo: '? ' + p.resumo, detalhe: 'Motivo: ' + p.motivo, alerta: true,
+        acoes: [{ texto: 'Revisar', fn: () => showCard(proposalCard(p)) }, { texto: 'Aprovar', fn: () => decideProposal(p.id, true) }, { texto: 'Recusar', fn: () => decideProposal(p.id, false) }],
+      })),
+      ...d.presets.map((p) => {
+        const g = (d.permissoes || []).find((x) => x.preset === p.preset);
+        return {
+          titulo: (g ? '● Permitido: ' : 'Permissão: ') + p.titulo,
+          detalhe: p.explicacao + (g && g.expira_em ? ' · até ' + whenTxt(g.expira_em) : ''),
+          acoes: [g ? { texto: 'Revogar', fn: () => revokeGrant(p.preset, p.titulo) } : { texto: 'Permitir', fn: () => offerGrant(p) }],
+        };
+      }),
+      ...d.recentes.slice(0, 6).map((p) => ({ titulo: (p.status === 'executada' ? '✓ ' : p.status === 'falhou' ? '! ' : '· ') + p.resumo, detalhe: (STATUS_TXT[p.status] || p.status) + ' · ' + whenTxt(p.atualizada_em), alerta: p.status === 'falhou', acoes: [{ texto: 'Abrir', fn: () => showCard(proposalCard(p)) }] })),
+    ];
+    const botoes = [];
+    const g = d.plataformas.google || {};
+    if (g.configurado && !g.conectado) botoes.push({ texto: 'Conectar Google Ads', fn: connectGoogle });
+    if ((d.permissoes || []).length) botoes.push({ texto: 'Revogar todas as permissões', fn: () => revokeGrant('todas', 'todas') });
+    showCard({
+      id: 'trafego', rotulo: 'JARVIS · AGENTE DE TRÁFEGO', titulo: d.pendentes.length ? 'Propostas esperando você' : 'Tráfego pago',
+      destaque: { valor: String(d.pendentes.length), legenda: 'para aprovar' },
+      texto: plat('google') + ' · ' + plat('meta') + '. Teto por campanha: ' + reais(d.teto_orcamento_dia) + '/dia.',
+      itens, botoes,
+      rodape: 'o agente só propõe · nada muda nos anúncios sem você aprovar, exceto o que você permitir aqui',
+    });
+  }
+  let checkingTraffic = false;
+  async function checkTraffic() {
+    if (TELA || !token || checkingTraffic) return;
+    checkingTraffic = true;
+    try {
+      const since = store.get('jarvis_trafego_desde', new Date(Date.now() - 12 * 3600_000).toISOString());
+      const r = await api('/api/trafego/avisos?desde=' + encodeURIComponent(since));
+      if (!r.ok) return;
+      const { propostas = [], agora } = await r.json();
+      if (agora) store.set('jarvis_trafego_desde', agora);
+      for (const p of propostas) {
+        showCard(proposalCard(p));
+        beep(p.status === 'pendente' ? 660 : 784, 160);
+        const fala = p.status === 'pendente' ? 'Proposta de tráfego esperando você: ' + p.resumo + '.' : p.status === 'executada' ? 'Tráfego: feito. ' + p.resumo + '.' : 'Tráfego: a plataforma recusou uma mudança.';
+        if (resting() && (await say(fala))) { subtitle(''); restMode(); }
+      }
+    } catch {} finally { checkingTraffic = false; }
+  }
+  $('trafegoBtn').onclick = () => { toggleHud(false); showTraffic(); };
+
   $('missoesBtn').onclick = () => { toggleHud(false); showMissions(); };
   $('relatoriosBtn').onclick = () => { toggleHud(false); showReports(); };
 
@@ -2263,6 +2396,7 @@
   setInterval(checkReminders, 30_000);
   setInterval(() => checkReports(), 30_000);
   setInterval(() => checkWhatsapp(), 60_000);
+  setInterval(() => checkTraffic(), 60_000);
 
   // ================= habilidades =================
   const SKILLS = [
@@ -2906,6 +3040,7 @@
     checkReminders();
     checkReports();
     checkWhatsapp();
+    checkTraffic();
     refreshMusicInfo();
     offerWake();
     subtitle('Diga “bom dia” ou toque no microfone.', 5000);

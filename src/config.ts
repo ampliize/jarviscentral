@@ -66,6 +66,58 @@ export interface Config {
   publicUrl: string;
   /** GitHub somente leitura para o modo técnico (GITHUB_TOKEN + GITHUB_OWNERS). */
   github: { token: string; owners: string[] } | null;
+  /** Agente de tráfego: contas de anúncios e limites. */
+  ads: AdsConfig;
+}
+
+export interface AdsConfig {
+  google: {
+    developerToken: string;
+    clientId: string;
+    clientSecret: string;
+    customerId: string;
+    loginCustomerId: string | null;
+    apiVersion: string;
+  } | null;
+  meta: { accessToken: string; accountId: string; apiVersion: string } | null;
+  /** Teto de orçamento diário por campanha/conjunto (R$), vale mesmo com aprovação. */
+  maxDailyBudget: number;
+  /** Validade padrão das permissões do dono, em dias. */
+  grantDays: number;
+}
+
+const digits = (v: string | undefined) => (v ?? "").replace(/\D/g, "");
+
+function loadAds(env: NodeJS.ProcessEnv): AdsConfig {
+  const g = {
+    developerToken: env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim() ?? "",
+    clientId: env.GOOGLE_ADS_CLIENT_ID?.trim() ?? "",
+    clientSecret: env.GOOGLE_ADS_CLIENT_SECRET?.trim() ?? "",
+    customerId: digits(env.GOOGLE_ADS_CUSTOMER_ID),
+  };
+  const googleOk = g.developerToken && g.clientId && g.clientSecret && /^\d{10}$/.test(g.customerId);
+  // Versão fora do formato não derruba o Jarvis: volta para a padrão e avisa no log.
+  const version = (raw: string | undefined, re: RegExp, fallback: string, name: string) => {
+    const v = raw?.trim();
+    if (!v) return fallback;
+    if (re.test(v)) return v;
+    console.warn(`${name} inválida (${v}); usando ${fallback}.`);
+    return fallback;
+  };
+  const apiVersion = version(env.GOOGLE_ADS_API_VERSION, /^v\d{2,3}$/, "v22", "GOOGLE_ADS_API_VERSION");
+  const metaToken = env.META_ADS_ACCESS_TOKEN?.trim() ?? "";
+  const metaAccount = digits(env.META_ADS_ACCOUNT_ID);
+  const metaVersion = version(env.META_API_VERSION, /^v\d{2,3}\.\d$/, "v23.0", "META_API_VERSION");
+  const login = digits(env.GOOGLE_ADS_LOGIN_CUSTOMER_ID);
+  const cap = Number(String(env.TRAFEGO_ORCAMENTO_MAX_DIA ?? "").replace(",", "."));
+  return {
+    google: googleOk
+      ? { ...g, loginCustomerId: /^\d{10}$/.test(login) ? login : null, apiVersion }
+      : null,
+    meta: metaToken && metaAccount ? { accessToken: metaToken, accountId: metaAccount, apiVersion: metaVersion } : null,
+    maxDailyBudget: cap > 0 ? Math.min(100_000, cap) : 300,
+    grantDays: Math.min(90, Math.max(1, Math.round(Number(env.TRAFEGO_PERMISSAO_DIAS) || 30))),
+  };
 }
 
 /** Donos de repositório que o Jarvis pode ler (padrão: ampliize). */
@@ -162,6 +214,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     unsplashAccessKey: env.UNSPLASH_ACCESS_KEY?.trim() ?? "",
     studioOpenAIModel: env.STUDIO_OPENAI_MODEL?.trim() || "gpt-4.1",
     publicUrl: /^https:\/\/[^\s/]+$/.test(env.JARVIS_PUBLIC_URL?.trim().replace(/\/$/, "") ?? "") ? env.JARVIS_PUBLIC_URL!.trim().replace(/\/$/, "") : "",
+    ads: loadAds(env),
     github: env.GITHUB_TOKEN?.trim()
       ? {
           token: env.GITHUB_TOKEN.trim(),
