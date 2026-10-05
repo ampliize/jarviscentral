@@ -262,8 +262,8 @@ test("whatsapp: avisa só lead esperando resposta nossa, uma vez, sem telefone",
 test("reuniões: avisa a reunião marcada pelo atendente uma vez, com o dossiê", async () => {
   const dataDir = await tmp();
   const reunioes = [
-    { lead_id: 3, nome: "Clínica Sorriso", marcada_em: "2026-10-05T12:00:00.123456+00:00", inicio: "2026-10-06T13:00:00Z", dossie: { resumo: "Quer mais pacientes" } },
-    { lead_id: 4, nome: "Antiga", marcada_em: "2026-10-04T10:00:00+00:00", inicio: "2026-10-05T13:00:00Z", dossie: null },
+    { lead_id: 3, nome: "Clínica Sorriso", marcada_em: "2026-10-01T12:00:00.123456+00:00", inicio: "2026-10-06T13:00:00Z", dossie: { resumo: "Quer mais pacientes" } },
+    { lead_id: 4, nome: "Antiga", marcada_em: "2026-09-30T10:00:00+00:00", inicio: "2026-10-05T13:00:00Z", dossie: null },
   ];
   const pedidos: unknown[] = [];
   const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -281,13 +281,26 @@ test("reuniões: avisa a reunião marcada pelo atendente uma vez, com o dossiê"
     noScheduler: true,
   });
   assert.equal((await app.request("/api/reunioes/avisos")).status, 401);
-  const first = (await (await app.request("/api/reunioes/avisos?desde=2026-10-05T00:00:00.000Z", { headers: auth })).json()) as any;
+  const first = (await (await app.request("/api/reunioes/avisos?desde=2026-10-01T00:00:00.000Z", { headers: auth })).json()) as any;
   assert.deepEqual(first.reunioes.map((r: any) => r.lead_id), [3]);
   assert.equal(first.reunioes[0].dossie.resumo, "Quer mais pacientes");
-  assert.equal(first.agora, "2026-10-05T12:00:00.123456+00:00");
-  assert.deepEqual(pedidos[0], { desde: "2026-10-05T00:00:00.000Z" });
+  assert.equal(first.agora, "2026-10-01T12:00:00.123456+00:00");
+  assert.deepEqual(pedidos[0], { desde: "2026-10-01T00:00:00.000Z" });
   // Com o cursor (microssegundos), a mesma reunião não volta.
   const again = (await (await app.request(`/api/reunioes/avisos?desde=${encodeURIComponent(first.agora)}`, { headers: auth })).json()) as any;
   assert.deepEqual(again.reunioes, []);
   assert.equal(again.agora, first.agora);
+  // Recém-marcada sem dossiê espera; as anteriores saem e o cursor para antes dela.
+  const agoraMesmo = new Date().toISOString();
+  reunioes.push(
+    { lead_id: 5, nome: "Sem dossiê ainda", marcada_em: agoraMesmo, inicio: "2026-10-07T13:00:00Z", dossie: null },
+    { lead_id: 6, nome: "Depois", marcada_em: new Date(Date.now() + 1000).toISOString(), inicio: "2026-10-07T14:00:00Z", dossie: { resumo: "ok" } },
+  );
+  const held = (await (await app.request(`/api/reunioes/avisos?desde=${encodeURIComponent(first.agora)}`, { headers: auth })).json()) as any;
+  assert.deepEqual(held.reunioes, []);
+  assert.equal(held.agora, first.agora);
+  (reunioes[2] as any).dossie = { resumo: "pronto" };
+  const ready = (await (await app.request(`/api/reunioes/avisos?desde=${encodeURIComponent(first.agora)}`, { headers: auth })).json()) as any;
+  assert.deepEqual(ready.reunioes.map((r: any) => r.lead_id), [5, 6]);
+  assert.equal(ready.agora, reunioes[3]!.marcada_em);
 });

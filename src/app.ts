@@ -560,9 +560,13 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     // Instantes comparados aqui (o CRM devolve microssegundos; o filtro de lá é por milissegundo).
     const at = (iso: string | null) => (iso ? Date.parse(iso) : NaN);
     const sinceMs = Date.parse(since);
-    const novas = reunioes.filter((r) => at(r.marcada_em) > sinceMs);
-    const agora = novas.reduce((max, r) => (at(r.marcada_em) > Date.parse(max) ? r.marcada_em! : max), since);
-    return c.json({ reunioes: novas, agora });
+    const novas = reunioes.filter((r) => at(r.marcada_em) > sinceMs).sort((a, b) => at(a.marcada_em) - at(b.marcada_em));
+    // O dossiê é gravado segundos depois da reunião: a recém-marcada sem dossiê espera
+    // (até 3 min) e o cursor não passa dela, para o aviso sair completo.
+    const espera = novas.findIndex((r) => !r.dossie && Date.now() - at(r.marcada_em) < 3 * 60_000);
+    const prontas = espera === -1 ? novas : novas.slice(0, espera);
+    const agora = prontas.length ? prontas[prontas.length - 1]!.marcada_em! : since;
+    return c.json({ reunioes: prontas, agora });
   });
   app.get("/api/relatorios/:id", async (c) => {
     const id = c.req.param("id");
