@@ -375,3 +375,19 @@ test("tráfego: versão de API fora do formato não derruba o Jarvis", () => {
   assert.equal(cfg.ads.google, null);
   assert.equal(cfg.ads.maxDailyBudget, 300);
 });
+
+test("equipe: a ferramenta de tarefas por pessoa consulta o recurso team_tasks só com o que foi pedido", async () => {
+  const { ampliizeConnector } = await import("../src/connectors/ampliize.js");
+  const pedidos: unknown[] = [];
+  const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    pedidos.push(JSON.parse(String(init!.body)));
+    return json({ data: { por_pessoa: { "Gustavo Matias": { abertas: 0, concluidas_no_periodo: 5 } }, tarefas: [] } });
+  }) as typeof fetch;
+  const c = ampliizeConnector({ url: "https://crm.test/api", key: "amp_" + "a".repeat(48), fetchImpl });
+  const tool = c.tools.find((t) => t.name === "ampliize_tarefas_equipe");
+  assert.ok(tool);
+  const out = await tool!.run({ pessoa: "gustavo", status: null, dias: null });
+  assert.equal(out.ok, true);
+  assert.deepEqual(pedidos[0], { resource: "team_tasks", params: { pessoa: "gustavo" } });
+  assert.match(out.content, /Gustavo Matias/);
+});

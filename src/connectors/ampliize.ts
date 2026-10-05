@@ -62,6 +62,16 @@ export function ampliizeConnector(api: ResourceApiOptions): Connector {
         { days: nullableInt("Quantos dias para trás (1 a 60, padrão 7).") },
       ),
       tool(
+        "ampliize_tarefas_equipe",
+        "Tarefas da equipe POR PESSOA (Gustavo, Miguel, Caio, Ellisson, Matheus, Davy…): o que cada um tem aberto, em andamento, atrasado e bloqueado, e o que concluiu no período, com projeto e cliente. Use para 'como estão as demandas do Gustavo?', 'o que o Miguel concluiu?', 'quem está com tarefa atrasada?'. Sem pessoa, traz o resumo de todos.",
+        "team_tasks",
+        {
+          pessoa: nullableString("Nome ou parte do nome (ex.: gustavo). Null para toda a equipe."),
+          status: nullableString("abertas, concluidas ou todas (padrão todas)."),
+          dias: nullableInt("Concluídas nos últimos N dias (1 a 365, padrão 60)."),
+        },
+      ),
+      tool(
         "ampliize_melhorias",
         "Melhorias de processo: falhas encontradas (problema, causa, impacto) e acertos (solução e resultado).",
         "improvements",
