@@ -151,7 +151,8 @@ test("tráfego: proposta pendente expira em 48 h e os avisos andam com o cursor"
   assert.deepEqual(first.propostas.map((x) => x.id), [p.id]);
   const again = await traffic.notices(new Date(first.agora), t0);
   assert.deepEqual(again.propostas, []);
-  const later = new Date(t0.getTime() + 49 * 3600_000);
+  // O carimbo da proposta usa max(agora, relógio real): a expiração é contada a partir dele.
+  const later = new Date(Math.max(t0.getTime(), Date.now()) + 49 * 3600_000);
   assert.equal((await store.get(p.id, later))!.status, "expirada");
   await assert.rejects(traffic.approve(p.id, later), /expirada/);
 });
@@ -390,4 +391,23 @@ test("equipe: a ferramenta de tarefas por pessoa consulta o recurso team_tasks s
   assert.equal(out.ok, true);
   assert.deepEqual(pedidos[0], { resource: "team_tasks", params: { pessoa: "gustavo" } });
   assert.match(out.content, /Gustavo Matias/);
+});
+
+test("onde estamos: a ferramenta consulta o recurso automations e o prompt manda usá-la primeiro", async () => {
+  const { ampliizeConnector } = await import("../src/connectors/ampliize.js");
+  const pedidos: unknown[] = [];
+  const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    pedidos.push(JSON.parse(String(init!.body)));
+    return json({ data: { manchete: "10 funcionando · 2 pedindo atenção", proximos_passos: [] } });
+  }) as typeof fetch;
+  const c = ampliizeConnector({ url: "https://crm.test/api", key: "amp_" + "a".repeat(48), fetchImpl });
+  const tool = c.tools.find((t) => t.name === "ampliize_onde_estamos");
+  assert.ok(tool);
+  const out = await tool!.run({});
+  assert.equal(out.ok, true);
+  assert.deepEqual(pedidos[0], { resource: "automations", params: {} });
+  assert.match(out.content, /10 funcionando/);
+  const { readFile } = await import("node:fs/promises");
+  const agent = await readFile(new URL("../src/agent.ts", import.meta.url), "utf8");
+  assert.match(agent, /ampliize_onde_estamos PRIMEIRO/);
 });
