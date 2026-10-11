@@ -36,6 +36,11 @@ export function ampliizeConnector(api: ResourceApiOptions): Connector {
     description: "CRM da agência Ampliize: clientes, projetos, financeiro, comercial, erros e melhorias de processo.",
     tools: [
       tool(
+        "ampliize_onde_estamos",
+        "ONDE ESTAMOS: o que funciona, o que está parado, o que está pronto mas nunca foi testado de verdade e o que ainda não existe, automação por automação e etapa por etapa (captar leads, abordar, atender, reunião de fechamento, clientes e cobrança, grupos e conteúdo, supervisão), com números reais, a manchete e os próximos passos (quem faz o quê). Use PRIMEIRO em 'em que pé estamos?', 'o que funciona e o que não funciona?', 'o que falta?', 'o robô está rodando?', 'a Bia já atendeu alguém?', 'qual o próximo passo?'.",
+        "automations",
+      ),
+      tool(
         "ampliize_panorama",
         "Panorama geral da operação da Ampliize agora: clientes, receita recorrente, cobranças vencidas, projetos atrasados, tarefas bloqueadas, funil comercial, erros do sistema e melhorias. Use primeiro em perguntas do tipo 'como está a operação?'.",
         "overview",
@@ -90,7 +95,7 @@ export function ampliizeConnector(api: ResourceApiOptions): Connector {
       ),
       tool(
         "ampliize_fila_sdr",
-        "Fila do SDR: follow-ups vencidos e os melhores leads para a 1ª abordagem (por score), com quantas mensagens de prospecção (abordagens e follow-ups) já saíram hoje e quantas restam no limite de 20. Sem telefone: o envio é sempre feito por uma pessoa no CRM.",
+        "Fila do SDR: follow-ups vencidos e os melhores leads para a 1ª abordagem (por score), com quantas mensagens de prospecção (abordagens e follow-ups) já saíram hoje e quantas restam no limite de 20. Sem telefone: o envio é feito pelo robô de prospecção (ou pela equipe, no CRM); você só observa.",
         "sdr_queue",
         { limite: nullableInt("Quantos leads trazer (1 a 50, padrão 20).") },
       ),
