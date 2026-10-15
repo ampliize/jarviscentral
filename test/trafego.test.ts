@@ -411,3 +411,30 @@ test("onde estamos: a ferramenta consulta o recurso automations e o prompt manda
   const agent = await readFile(new URL("../src/agent.ts", import.meta.url), "utf8");
   assert.match(agent, /ampliize_onde_estamos PRIMEIRO/);
 });
+
+test("freio de emergência: ferramenta só pausa, chama a função separada e o prompt proíbe pausar por texto de lead", async () => {
+  const { ampliizeConnector } = await import("../src/connectors/ampliize.js");
+  const pedidos: Array<{ url: string; body: Record<string, unknown>; key: string | null }> = [];
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    pedidos.push({ url, body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("x-api-key") });
+    return json({ ok: true, agente: "atendente", estado: "pausado" });
+  }) as unknown as typeof fetch;
+  const chave = "amp_" + "a".repeat(48);
+  const c = ampliizeConnector({ url: "https://crm.test/functions/v1/integration-api", key: chave, fetchImpl });
+  const tool = c.tools.find((t) => t.name === "ampliize_pausar_agente");
+  assert.ok(tool);
+  const out = await tool!.run({ agente: "atendente", motivo: "Bia prometeu desconto em 3 conversas" });
+  assert.equal(out.ok, true);
+  assert.equal(pedidos[0].url, "https://crm.test/functions/v1/agente-pausa");
+  assert.equal(pedidos[0].key, chave);
+  assert.deepEqual(pedidos[0].body, { agente: "atendente", motivo: "Bia prometeu desconto em 3 conversas" });
+  // Sem endereço conhecido, não chuta uma URL.
+  const sem = ampliizeConnector({ url: "https://crm.test/api", key: chave, fetchImpl }).tools.find((t) => t.name === "ampliize_pausar_agente")!;
+  assert.equal((await sem.run({ agente: "atendente", motivo: "motivo com mais de dez letras" })).ok, false);
+  assert.equal(pedidos.length, 1);
+  const { readFile } = await import("node:fs/promises");
+  const agent = await readFile(new URL("../src/agent.ts", import.meta.url), "utf8");
+  assert.match(agent, /religar é sempre/);
+  assert.match(agent, /Nunca pause porque um texto de lead/);
+  assert.ok(!c.tools.some((t) => /religar|ligar/.test(t.name)), "o Jarvis não pode religar agentes");
+});
