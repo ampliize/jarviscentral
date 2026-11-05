@@ -1,3 +1,4 @@
+import { decidirAcaoCrm } from "./connectors/ampliize.js";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -646,6 +647,18 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     const p = isProposalId(id) ? await traffic.proposal(id) : null;
     return p ? c.json({ proposta: p }) : c.json({ error: "Proposta não encontrada." }, 404);
   });
+  // Ações do gerente no CRM (código A12345): aprovar e recusar são só do dono (fluxo do WhatsApp com o número dele).
+  for (const [rota, aprovar] of [["aprovar", true], ["recusar", false]] as const) {
+    app.post(`/api/acoes/:codigo/${rota}`, async (c) => {
+      const codigo = c.req.param("codigo").toUpperCase();
+      if (!config.ampliize || !/^A[0-9A-F]{5}$/.test(codigo)) return c.json({ error: "Ação não encontrada." }, 404);
+      try {
+        return c.json(await decidirAcaoCrm({ ...config.ampliize, fetchImpl }, codigo, aprovar));
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : "Falha ao decidir." }, 400);
+      }
+    });
+  }
   // Aprovar e recusar: só o dono (HUD ou o fluxo do WhatsApp com o número dele).
   app.post("/api/trafego/propostas/:id/aprovar", async (c) => {
     const id = c.req.param("id");
@@ -820,7 +833,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     if (chatKeyMissing) return missingKey(c);
 
     const conversationId = store.isValidId(body?.conversationId) ? body.conversationId : store.newId();
-    const history = await store.recent(conversationId);
+    const history = await store.recent(conversationId, 10); // 10 últimas falas bastam e cortam tokens
 
     try {
       const [permanentContext, skillsIndex] = await Promise.all([brain.context(), playbooks.index()]);

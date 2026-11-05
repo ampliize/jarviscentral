@@ -60,6 +60,8 @@ export interface Config {
   /** Bancos de imagem para o Jarvis pesquisar referências (chaves gratuitas; o Openverse funciona sem chave). */
   pexelsApiKey: string;
   unsplashAccessKey: string;
+  /** Modelo barato para perguntas simples (OPENAI_MODEL_RAPIDO; "off" usa sempre o OPENAI_MODEL). */
+  openaiModelRapido: string;
   /** Modelo da OpenAI que cria os sites enquanto o Claude não está contratado (STUDIO_OPENAI_MODEL). */
   studioOpenAIModel: string;
   /** Endereço público do Jarvis (ex.: https://jarvis.ampliize.com), usado nas URLs dos sites do estúdio. */
@@ -183,6 +185,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     usesOpenAI,
     llmApiKey: env.LLM_API_KEY?.trim() || (usesOpenAI ? openaiApiKey : ""),
     openaiModel: env.OPENAI_MODEL?.trim() || "gpt-4.1",
+    // Conversa do dia a dia vai no modelo barato; estratégia, análise e código sobem para o OPENAI_MODEL.
+    openaiModelRapido: env.OPENAI_MODEL_RAPIDO?.trim() || "gpt-4.1-mini",
     voice: {
       apiKey: env.OPENAI_VOICE_API_KEY?.trim() || openaiApiKey,
       sttModel: env.OPENAI_STT_MODEL?.trim() || "whisper-1",
