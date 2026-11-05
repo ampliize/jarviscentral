@@ -201,3 +201,31 @@ test("ampliize_executar: manda a ação para a jarvis-acao com os parâmetros", 
   assert.match(JSON.stringify(r), /A1B2C3/);
   assert.ok(!c.tools.some((x) => /decidir|aprovar/.test(x.name)), "a IA não pode aprovar");
 });
+
+test("executor_ordem: abre issue com rótulo jarvis, respeita repos e limite diário", async () => {
+  const { executorConnector, mesclarPr } = await import("../src/connectors/github.js");
+  const chamadas: any[] = [];
+  let hoje = 0;
+  const fetchImpl = (async (url: string, init: any = {}) => {
+    chamadas.push({ url, method: init.method ?? "GET", body: init.body ? JSON.parse(init.body) : null });
+    if (url.includes("/search/issues")) return new Response(JSON.stringify({ total_count: hoje }), { status: 200 });
+    if (url.endsWith("/issues") && init.method === "POST") return new Response(JSON.stringify({ number: 7, html_url: "https://github.com/ampliize/ampliize/issues/7" }), { status: 201 });
+    if (url.endsWith("/pulls/9")) return new Response(JSON.stringify({ number: 9, state: "open", title: "x", head: { sha: "abc" } }), { status: 200 });
+    if (url.endsWith("/pulls/9/merge")) return new Response(JSON.stringify({ merged: true }), { status: 200 });
+    return new Response("{}", { status: 404 });
+  }) as unknown as typeof fetch;
+  const cfg = { token: "t", owners: ["ampliize"] };
+  const ex = { repos: ["ampliize/ampliize"], maxPorDia: 2 };
+  const t = executorConnector(cfg, ex, fetchImpl).tools.find((x) => x.name === "executor_ordem")!;
+  const spec = "Criar uma página /parceiros com formulário que grava em uma tabela nova, com RLS e teste. ".repeat(2);
+  const ok = await t.run({ repo: "ampliize/ampliize", titulo: "Página de parceiros", especificacao: spec });
+  assert.match(JSON.stringify(ok), /ordem\\+":7/);
+  const post = chamadas.find((c) => c.method === "POST");
+  assert.deepEqual(post.body.labels, ["jarvis"]);
+  assert.match(JSON.stringify(await t.run({ repo: "ampliize/outro", titulo: "Página de parceiros", especificacao: spec })), /só trabalha/);
+  hoje = 2;
+  assert.match(JSON.stringify(await t.run({ repo: "ampliize/ampliize", titulo: "Página de parceiros", especificacao: spec })), /Limite/);
+  const m = await mesclarPr(cfg, ex, "ampliize/ampliize", 9, fetchImpl);
+  assert.equal(m.estado, "merged");
+  assert.equal(chamadas.find((c) => c.url.endsWith("/merge")).body.sha, "abc");
+});
