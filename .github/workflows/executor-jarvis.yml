@@ -1,0 +1,47 @@
+# Executor do Jarvis: quando o Jarvis abre uma ordem de serviço (issue com o rótulo "jarvis"),
+# o Claude Code faz o trabalho e abre um pull request. O merge é sempre do Davy
+# ("APROVAR PR <número>" no WhatsApp do Jarvis). Precisa do segredo ANTHROPIC_API_KEY no repositório.
+name: Executor do Jarvis (Claude Code)
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  executar:
+    # Só ordens com o rótulo "jarvis" abertas por quem é da casa (repositório público não dispara para estranhos).
+    if: github.event.label.name == 'jarvis' && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: executor-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: >-
+            --model claude-sonnet-5-5
+            --max-turns 60
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash"
+          prompt: |
+            Você é o executor da Ampliize. Faça a ordem de serviço da issue #${{ github.event.issue.number }}
+            do repositório ${{ github.repository }} (leia com: gh issue view ${{ github.event.issue.number }}).
+            Regras:
+            - Siga o CLAUDE.md e o padrão do código existente. Português do Brasil em textos e commits.
+            - Trabalhe na branch claude/ordem-${{ github.event.issue.number }}; rode os testes, lint e build que o projeto já tem e só entregue com tudo verde.
+            - Nunca coloque segredos no código; se precisar de chave nova, diga no PR qual variável o Davy deve cadastrar.
+            - Migração de banco: crie o arquivo em supabase/migrations sem DROP nem DELETE de dados; não aplique em produção.
+            - Abra o pull request com: gh pr create --base main --head claude/ordem-${{ github.event.issue.number }} --title "<título>" --body "<o que mudou, como testar> Closes #${{ github.event.issue.number }}"
+            - NUNCA faça merge. Termine comentando na issue o link do PR e, em 3 linhas, o que foi feito e o que o Davy precisa fazer.
+            - Se a ordem for impossível ou perigosa, não faça: comente na issue o porquê e a alternativa.

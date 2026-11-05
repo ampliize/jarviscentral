@@ -68,6 +68,8 @@ export interface Config {
   publicUrl: string;
   /** GitHub somente leitura para o modo técnico (GITHUB_TOKEN + GITHUB_OWNERS). */
   github: { token: string; owners: string[] } | null;
+  /** Executor (Claude Code no GitHub): repositórios liberados e teto de ordens por dia por repositório. */
+  executor: { repos: string[]; maxPorDia: number };
   /** Agente de tráfego: contas de anúncios e limites. */
   ads: AdsConfig;
 }
@@ -225,5 +227,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           owners: githubOwners(env.GITHUB_OWNERS),
         }
       : null,
+    executor: {
+      repos: (env.EXECUTOR_REPOS?.trim() || "ampliize/ampliize,ampliize/jarviscentral").split(",").map((r) => r.trim().toLowerCase()).filter(Boolean),
+      maxPorDia: Math.max(0, Math.min(Number(env.EXECUTOR_MAX_DIA ?? 5) || 0, 30)),
+    },
   };
 }

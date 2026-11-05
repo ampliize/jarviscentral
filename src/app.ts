@@ -44,7 +44,7 @@ import { BriefingMusic, MAX_MUSIC_BYTES, musicType } from "./skills/music.js";
 import { AuditLog, auditConnector, withAudit } from "./skills/audit.js";
 import { AgentGuard, guardConnector } from "./skills/guard.js";
 import { sitesConnector } from "./skills/sites.js";
-import { githubConnector } from "./connectors/github.js";
+import { executorConnector, githubConnector, mesclarPr } from "./connectors/github.js";
 import type { ToolLink } from "./llm/openai.js";
 import { ClaudeCreative, type CreativeModel } from "./studio/claude.js";
 import { OpenAICreative } from "./studio/openai-creative.js";
@@ -230,6 +230,7 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
       sitesConnector(config, brain, fetchImpl),
       studioConnector(studio, () => origin),
       ...(config.github ? [githubConnector(config.github, fetchImpl)] : []),
+      ...(config.github && config.executor.maxPorDia > 0 ? [executorConnector(config.github, config.executor, fetchImpl)] : []),
       auditConnector(audit),
       panelsConnector(skills.panels!),
       missionsConnector(missionStore, runner),
@@ -646,6 +647,16 @@ export async function createApp({ config, fetchImpl, awaitBrainSetup, monitorOpt
     const id = c.req.param("id");
     const p = isProposalId(id) ? await traffic.proposal(id) : null;
     return p ? c.json({ proposta: p }) : c.json({ error: "Proposta não encontrada." }, 404);
+  });
+  // Merge de um PR do executor: só o dono (fluxo do WhatsApp com o número dele, "APROVAR PR <n>").
+  app.post("/api/prs/merge", async (c) => {
+    if (!config.github) return c.json({ error: "GITHUB_TOKEN não configurado." }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { repo?: unknown; numero?: unknown };
+    try {
+      return c.json(await mesclarPr(config.github, config.executor, String(body.repo ?? "ampliize/ampliize"), Number(body.numero), fetchImpl));
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Falha no merge." }, 400);
+    }
   });
   // Ações do gerente no CRM (código A12345): aprovar e recusar são só do dono (fluxo do WhatsApp com o número dele).
   for (const [rota, aprovar] of [["aprovar", true], ["recusar", false]] as const) {

@@ -31,22 +31,30 @@ export class GithubClient {
   }
 
   async get(pathAndQuery: string): Promise<any> {
+    return this.request("GET", pathAndQuery);
+  }
+
+  async request(method: "GET" | "POST" | "PUT", pathAndQuery: string, body?: unknown): Promise<any> {
     const res = await this.fetchImpl(`${API}${pathAndQuery}`, {
+      method,
       headers: {
         Authorization: `Bearer ${this.cfg.token}`,
         Accept: "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "Jarvis-Ampliize",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },
+      body: body === undefined ? undefined : JSON.stringify(body),
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
-    const body = await res.json().catch(() => null);
+    const data = await res.json().catch(() => null);
     if (res.status === 404) throw new GithubError("Não encontrado (ou o token não tem acesso a esse repositório).");
     if (res.status === 401) throw new GithubError("GITHUB_TOKEN inválido ou expirado.");
-    if (res.status === 403 || res.status === 429) throw new GithubError("GitHub limitou as consultas ou o token não tem permissão.");
+    if (res.status === 403 || res.status === 429) throw new GithubError("GitHub limitou as consultas ou o token não tem permissão (para o executor: Issues e Pull requests em Read and write).");
+    if (res.status === 405 || res.status === 409) throw new GithubError(String(data?.message ?? "O GitHub não aceitou (PR com conflito ou checagens pendentes)."));
     if (!res.ok) throw new GithubError(`GitHub respondeu HTTP ${res.status}.`);
-    return body;
+    return data;
   }
 }
 
@@ -143,4 +151,104 @@ export function githubConnector(cfg: GithubConfig, fetchImpl?: typeof fetch): Co
       },
     ],
   };
+}
+
+/**
+ * Executor: o Jarvis abre uma ORDEM DE SERVIÇO (issue com o rótulo "jarvis") e o Claude Code, rodando
+ * no GitHub Actions do repositório, faz o trabalho e entrega um pull request. Nada vai ao ar sem o
+ * dono aprovar o merge (APROVAR PR <número> no WhatsApp): a IA não tem ferramenta de merge.
+ */
+export const EXECUTOR_ROTULO = "jarvis";
+
+export interface ExecutorConfig {
+  repos: string[];
+  maxPorDia: number;
+}
+
+const hojeBR = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Maceio" }).format(now);
+
+export function executorConnector(cfg: GithubConfig, ex: ExecutorConfig, fetchImpl?: typeof fetch): Connector {
+  const gh = new GithubClient(cfg, fetchImpl);
+  const wrap = (fn: (args: Record<string, unknown>) => Promise<unknown>) => async (args: Record<string, unknown>) => {
+    try {
+      return toolResult(true, await fn(args));
+    } catch (err) {
+      return toolResult(false, { erro: err instanceof GithubError ? err.message : "falha ao falar com o GitHub" });
+    }
+  };
+  const repoDoExecutor = (input: unknown) => {
+    const repo = gh.repo(input);
+    if (!ex.repos.includes(repo.toLowerCase())) throw new GithubError(`O executor só trabalha em: ${ex.repos.join(", ")}.`);
+    return repo;
+  };
+  return {
+    id: "executor",
+    name: "Executor (Claude Code no GitHub)",
+    description: `Faz qualquer trabalho de código, banco, automação, site ou landing page nos repositórios ${ex.repos.join(", ")}: você escreve a ordem de serviço e o Claude Code entrega um pull request.`,
+    tools: [
+      {
+        name: "executor_ordem",
+        description:
+          "EXECUTOR: quando o pedido precisa de algo que você não tem ferramenta para fazer (criar ou mudar sistema, tela, função, automação, landing page, integração, relatório novo, corrigir bug), abra uma ordem de serviço. O Claude Code executa sozinho no GitHub e abre um pull request; o dono aprova o merge respondendo APROVAR PR <número>. Escreva a especificação completa: objetivo, contexto (o que você já leu do CRM/código), o que entregar, critérios de aceite e o que NÃO fazer. Uma ordem por assunto. Custa dinheiro por ordem: não abra para o que suas outras ferramentas já resolvem.",
+        parameters: {
+          type: "object",
+          properties: {
+            repo: { type: "string", description: `Onde trabalhar: ${ex.repos.join(" ou ")} (CRM, site e funções = ampliize/ampliize; o próprio Jarvis = ampliize/jarviscentral).` },
+            titulo: { type: "string", description: "Título curto da ordem (até 90 caracteres)." },
+            especificacao: { type: "string", description: "Especificação completa em Markdown." },
+          },
+          required: ["repo", "titulo", "especificacao"],
+          additionalProperties: false,
+        },
+        run: wrap(async (args) => {
+          const repo = repoDoExecutor(args.repo);
+          const titulo = String(args.titulo ?? "").replace(/\s+/g, " ").trim().slice(0, 90);
+          const spec = String(args.especificacao ?? "").trim().slice(0, 20_000);
+          if (titulo.length < 5 || spec.length < 80) return { erro: "Título (5+) e especificação detalhada (80+ caracteres) são obrigatórios." };
+          const hoje = hojeBR();
+          const ja = await gh.get(`/search/issues?per_page=1&q=${encodeURIComponent(`repo:${repo} is:issue label:${EXECUTOR_ROTULO} created:>=${hoje}`)}`);
+          if (Number(ja?.total_count ?? 0) >= ex.maxPorDia) {
+            return { erro: `Limite de ${ex.maxPorDia} ordens por dia neste repositório atingido (EXECUTOR_MAX_DIA). Junte pedidos ou deixe para amanhã.` };
+          }
+          const corpo = `${spec}\n\n---\n_Ordem aberta pelo Jarvis em ${hoje}. Entregue em um pull request que feche esta issue. Não faça merge._`;
+          const issue = await gh.request("POST", `/repos/${repo}/issues`, { title: titulo, body: corpo, labels: [EXECUTOR_ROTULO] });
+          return {
+            ordem: issue.number,
+            url: issue.html_url,
+            aviso: "Ordem aberta. O Claude Code começa em instantes e abre um pull request (leva de 5 a 30 minutos). Nada vai ao ar até o dono responder APROVAR PR <número do PR>. Não diga que está pronto.",
+          };
+        }),
+      },
+      {
+        name: "executor_status",
+        description: "Ordens de serviço do executor (abertas e recentes) e os pull requests que ele entregou, com estado (aberto, aguardando merge, merged).",
+        parameters: { type: "object", properties: { repo: { type: "string", description: ex.repos.join(" ou ") } }, required: ["repo"], additionalProperties: false },
+        run: wrap(async (args) => {
+          const repo = repoDoExecutor(args.repo);
+          const [issues, prs] = await Promise.all([
+            gh.get(`/repos/${repo}/issues?labels=${EXECUTOR_ROTULO}&state=all&per_page=10&sort=updated`),
+            gh.get(`/repos/${repo}/pulls?state=all&per_page=20&sort=updated&direction=desc`),
+          ]);
+          const doExecutor = (prs as any[]).filter((p) => /^claude\//.test(String(p.head?.ref ?? "")) || /\(#?\d+\)|closes #|fixes #|resolve #/i.test(String(p.body ?? "")));
+          return {
+            ordens: (issues as any[]).filter((i) => !i.pull_request).map((i) => ({ numero: i.number, titulo: i.title, estado: i.state, comentarios: i.comments, atualizado: i.updated_at })),
+            prs: doExecutor.map((p) => ({ numero: p.number, titulo: p.title, estado: p.merged_at ? "merged" : p.state === "open" ? "aguardando APROVAR PR" : "fechado", url: p.html_url })),
+          };
+        }),
+      },
+    ],
+  };
+}
+
+/** Merge pedido pelo DONO (APROVAR PR <n> no WhatsApp). Não é ferramenta da IA. */
+export async function mesclarPr(cfg: GithubConfig, ex: ExecutorConfig, repoIn: string, numero: number, fetchImpl?: typeof fetch) {
+  const gh = new GithubClient(cfg, fetchImpl);
+  const repo = gh.repo(repoIn);
+  if (!ex.repos.includes(repo.toLowerCase())) throw new GithubError(`Só faço merge em: ${ex.repos.join(", ")}.`);
+  if (!Number.isInteger(numero) || numero <= 0) throw new GithubError("Número de PR inválido.");
+  const pr = await gh.get(`/repos/${repo}/pulls/${numero}`);
+  if (pr.merged_at) return { repo, numero, titulo: pr.title, estado: "já estava merged" };
+  if (pr.state !== "open") throw new GithubError("Esse PR está fechado.");
+  const r = await gh.request("PUT", `/repos/${repo}/pulls/${numero}/merge`, { merge_method: "squash", sha: pr.head?.sha });
+  return { repo, numero, titulo: pr.title, estado: r?.merged ? "merged" : "não mesclado", url: pr.html_url };
 }
