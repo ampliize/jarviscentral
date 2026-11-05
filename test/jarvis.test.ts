@@ -69,8 +69,9 @@ test("API exige o token de acesso", async () => {
 test("chat: o modelo chama a ferramenta do CRM e responde com o dado", async () => {
   const { impl, calls } = fakeFetch([
     (body) => {
-      assert.equal(body.model, "gpt-4.1");
+      assert.equal(body.model, "gpt-4.1-mini"); // pergunta simples vai no modelo barato
       assert.ok(body.tools.some((t: any) => t.function.name === "ampliize_panorama" && t.function.strict === true));
+      assert.ok(body.tools.some((t: any) => t.function.name === "ampliize_executar" && t.function.strict === true));
       assert.match(body.messages[0].content, /Jarvis/);
       return json({
         model: "gpt-4.1",
@@ -174,4 +175,29 @@ test("memória: anota só na inbox, não sobrescreve e encontra pela busca", asy
   // Termo que só aparece no nome do arquivo ainda devolve o conteúdo da nota.
   const byName = await brain.search("passwd");
   assert.ok(byName[0] && byName[0].snippet.length > 0);
+});
+
+test("escolherModelo: estratégia e código no forte, o resto no barato", async () => {
+  const { escolherModelo } = await import("../src/agent.js");
+  const cfg = { openaiModel: "gpt-4.1", openaiModelRapido: "gpt-4.1-mini" };
+  assert.equal(escolherModelo(cfg, "bom dia, como está a operação?"), "gpt-4.1-mini");
+  assert.equal(escolherModelo(cfg, "monta uma estratégia de prospecção para clínicas"), "gpt-4.1");
+  assert.equal(escolherModelo(cfg, "por que a Bia não marcou reunião?"), "gpt-4.1");
+  assert.equal(escolherModelo({ ...cfg, openaiModelRapido: "off" }, "oi"), "gpt-4.1");
+});
+
+test("ampliize_executar: manda a ação para a jarvis-acao com os parâmetros", async () => {
+  const { ampliizeConnector } = await import("../src/connectors/ampliize.js");
+  let visto: any = null;
+  const fetchImpl = (async (url: string, init: any) => {
+    visto = { url, body: JSON.parse(init.body), key: init.headers["x-api-key"] };
+    return new Response(JSON.stringify({ ok: true, codigo: "A1B2C3", status: "executada" }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const c = ampliizeConnector({ url: "https://x.supabase.co/functions/v1/integration-api", key: "amp_k", fetchImpl });
+  const t = c.tools.find((x) => x.name === "ampliize_executar")!;
+  const r = await t.run({ acao: "prospeccao_ajustar", motivo: "clínicas respondem mais", params_json: '{"nichos_alvo":["Clínica"]}' });
+  assert.equal(visto.url, "https://x.supabase.co/functions/v1/jarvis-acao");
+  assert.deepEqual(visto.body, { op: "executar", acao: "prospeccao_ajustar", motivo: "clínicas respondem mais", params: { nichos_alvo: ["Clínica"] } });
+  assert.match(JSON.stringify(r), /A1B2C3/);
+  assert.ok(!c.tools.some((x) => /decidir|aprovar/.test(x.name)), "a IA não pode aprovar");
 });

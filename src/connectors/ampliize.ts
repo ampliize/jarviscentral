@@ -58,12 +58,57 @@ export function ampliizeConnector(api: ResourceApiOptions): Connector {
     },
   };
 
+  /** Gerente: ações no CRM pela função jarvis-acao (registradas e com "APROVAR <código>" do dono no que importa). */
+  const acaoUrl = api.url.replace(/\/integration-api\/?$/, "/jarvis-acao");
+  const chamarAcao = async (body: Record<string, unknown>) => {
+    if (acaoUrl === api.url) return toolResult(false, { erro: "AMPLIIZE_API_URL deveria terminar em /integration-api." });
+    try {
+      const res = await (api.fetchImpl ?? fetch)(acaoUrl, {
+        method: "POST",
+        headers: { "x-api-key": api.key, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(api.timeoutMs ?? 20_000),
+      });
+      const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      return res.ok ? toolResult(true, payload) : toolResult(false, { erro: String(payload.error ?? `HTTP ${res.status}`) });
+    } catch {
+      return toolResult(false, { erro: "Não consegui falar com o CRM." });
+    }
+  };
+  const executar: Tool = {
+    name: "ampliize_executar",
+    description:
+      "GERENTE: executa uma ação no CRM e registra (código A12345). Ações: prospeccao_ajustar (params: nichos_alvo[], cidades_prioritarias[], ddds_alvo[], origens[], score_minimo 0-100, limite_dia 0-80, intervalo_min, ativo), agente_diretriz (orienta um agente: params agente = atendente|pesquisador|reuniao|conteudo|todos, titulo, texto; mesmo título substitui; ativo=false desliga), lead_mover (params prospect_id, stage = novo|contatado|qualificado|negociacao|fechado_ganho|fechado_perdido, nota), desfazer (params codigo). Ligar o robô e aumentar volume ou ritmo de envio ficam PENDENTES até o dono responder APROVAR <código>: nesse caso diga que espera a aprovação, nunca que foi feito. Você não fala com lead nem cliente: quem fala é a Bia; para mudar como ela fala, use agente_diretriz. Motivo sempre com o fato ou a meta.",
+    parameters: schema({
+      acao: { type: "string", enum: ["prospeccao_ajustar", "agente_diretriz", "lead_mover", "desfazer"] },
+      motivo: { type: "string", description: "Fato observado ou meta (10+ caracteres)." },
+      params_json: { type: "string", description: 'Parâmetros da ação em JSON, ex.: {"nichos_alvo":["Clínica","Estética"]}.' },
+    }),
+    run: async (args) => {
+      let params: unknown;
+      try {
+        params = JSON.parse(String(args.params_json ?? "{}"));
+      } catch {
+        return toolResult(false, { erro: "params_json não é um JSON válido." });
+      }
+      return chamarAcao({ op: "executar", acao: args.acao, motivo: args.motivo, params });
+    },
+  };
+  const acoesListar: Tool = {
+    name: "ampliize_acoes_listar",
+    description: "Últimas 20 ações que você (Jarvis) fez ou pediu no CRM, com código, status (executada, pendente, recusada, desfeita) e resultado.",
+    parameters: schema(),
+    run: () => chamarAcao({ op: "listar" }),
+  };
+
   return {
     id: "ampliize",
     name: "Ampliize CRM",
     description: "CRM da agência Ampliize: clientes, projetos, financeiro, comercial, erros e melhorias de processo.",
     tools: [
       pausar,
+      executar,
+      acoesListar,
       tool(
         "ampliize_onde_estamos",
         "ONDE ESTAMOS: o que funciona, o que está parado, o que está pronto mas nunca foi testado de verdade e o que ainda não existe, automação por automação e etapa por etapa (captar leads, abordar, atender, reunião de fechamento, clientes e cobrança, grupos e conteúdo, supervisão), com números reais, a manchete e os próximos passos (quem faz o quê). Use PRIMEIRO em 'em que pé estamos?', 'o que funciona e o que não funciona?', 'o que falta?', 'o robô está rodando?', 'a Bia já atendeu alguém?', 'qual o próximo passo?'.",
@@ -154,4 +199,18 @@ export function ampliizeConnector(api: ResourceApiOptions): Connector {
       ),
     ],
   };
+}
+
+/** Decisão do DONO sobre uma ação pendente. Não é ferramenta da IA: só o caminho do "APROVAR <código>" chama isto. */
+export async function decidirAcaoCrm(api: ResourceApiOptions, codigo: string, aprovar: boolean): Promise<Record<string, unknown>> {
+  const url = api.url.replace(/\/integration-api\/?$/, "/jarvis-acao");
+  const res = await (api.fetchImpl ?? fetch)(url, {
+    method: "POST",
+    headers: { "x-api-key": api.key, "Content-Type": "application/json" },
+    body: JSON.stringify({ op: "decidir", codigo, aprovar }),
+    signal: AbortSignal.timeout(api.timeoutMs ?? 20_000),
+  });
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(payload.error ?? `HTTP ${res.status}`));
+  return payload;
 }
